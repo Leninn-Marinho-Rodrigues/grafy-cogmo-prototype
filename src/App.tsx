@@ -1509,6 +1509,7 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const graphCanvasRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const graph = useMemo(() => buildGraph(state, query, groupId || undefined, activeFilters), [activeFilters, groupId, query, state]);
   const nodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
@@ -1542,10 +1543,19 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
 
-  const onWheel = (event: React.WheelEvent<SVGSVGElement>) => {
-    event.preventDefault();
-    setZoom((value) => Math.min(1.85, Math.max(0.55, value + (event.deltaY < 0 ? 0.08 : -0.08))));
-  };
+  useEffect(() => {
+    const canvas = graphCanvasRef.current;
+    if (!canvas) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setZoom((value) => Math.min(1.85, Math.max(0.55, value + (event.deltaY < 0 ? 0.08 : -0.08))));
+    };
+
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", handleWheel);
+  }, []);
 
   return (
     <div className="screen graph-screen">
@@ -1605,8 +1615,13 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
       </section>
 
       <section className="graph-layout">
-        <div className="graph-canvas">
+        <div className="graph-canvas" ref={graphCanvasRef}>
           <NetworkBackdrop className="graph-canvas-network" density={42} interactive={false} />
+          <div className="graph-zoom-hint" aria-hidden="true">
+            <ZoomIn size={15} />
+            <span>Roda do mouse: zoom no grafo</span>
+            <small>Arraste para navegar. Fora daqui, a página rola normalmente.</small>
+          </div>
           <svg
             viewBox="0 0 960 660"
             role="img"
@@ -1615,7 +1630,6 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
             onPointerMove={onPointerMove}
             onPointerUp={endPan}
             onPointerLeave={endPan}
-            onWheel={onWheel}
           >
             <g style={{ transform: `translate(${480 + pan.x}px, ${330 + pan.y}px) scale(${zoom}) translate(-480px, -330px)` }}>
               {graph.edges.map((edge) => {
