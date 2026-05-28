@@ -24,6 +24,7 @@ import {
   PanelLeft,
   Phone,
   Plus,
+  RotateCcw,
   Search,
   Settings,
   ShieldCheck,
@@ -34,7 +35,9 @@ import {
   UserRound,
   Users,
   WandSparkles,
-  X
+  X,
+  ZoomIn,
+  ZoomOut
 } from "lucide-react";
 import { initialState } from "./data";
 import {
@@ -43,7 +46,9 @@ import {
   extractDdd,
   formatDate,
   getAllTags,
+  getGraphFilterTags,
   getMergeSuggestions,
+  graphFilterGroups,
   initials,
   makeAssistantAnswer,
   mergeContacts,
@@ -57,9 +62,10 @@ import type { Contact, CustomField, GrafyState, GraphNode, LinkKind, ViewKey } f
 
 const STORAGE_KEY = "grafy-state-v2";
 const SESSION_KEY = "grafy-session-v2";
+const APP_SCHEMA_VERSION = "ux-neural-2026-05-28";
 
 const navItems: Array<{ key: ViewKey; label: string; icon: typeof Home }> = [
-  { key: "dashboard", label: "Inicio", icon: Home },
+  { key: "dashboard", label: "Início", icon: Home },
   { key: "contacts", label: "Contatos", icon: ContactRound },
   { key: "import", label: "Importar", icon: Import },
   { key: "integrations", label: "Conectores", icon: Link2 },
@@ -79,6 +85,7 @@ const linkLabels: Record<LinkKind, string> = {
 };
 
 const mobileNavOrder: ViewKey[] = ["dashboard", "contacts", "graph", "import", "integrations", "chat"];
+const groupColorOptions = ["#66e7ff", "#a993ff", "#ffd166", "#60f2d5", "#ff7aa8", "#31d17f"];
 
 function useStoredState<T>(key: string, fallback: T) {
   const [value, setValue] = useState<T>(() => {
@@ -96,6 +103,72 @@ function useStoredState<T>(key: string, fallback: T) {
   }, [key, value]);
 
   return [value, setValue] as const;
+}
+
+function hydrateState(state: GrafyState): GrafyState {
+  const needsDemoDataRefresh = state.schemaVersion !== APP_SCHEMA_VERSION;
+  const currentContacts = state.contacts?.length ? state.contacts : initialState.contacts;
+  const contactsById = new Map(currentContacts.map((contact) => [contact.id, contact]));
+  const hydratedContacts = [
+    ...initialState.contacts.map((seedContact) => {
+      const currentContact = contactsById.get(seedContact.id);
+      if (!needsDemoDataRefresh || !currentContact) return currentContact ?? seedContact;
+      return {
+        ...seedContact,
+        ...currentContact,
+        tags: unique([...seedContact.tags, ...(currentContact.tags ?? [])]),
+        links: currentContact.links ?? seedContact.links,
+        groupIds: unique([...seedContact.groupIds, ...(currentContact.groupIds ?? [])]),
+        customFields: { ...seedContact.customFields, ...(currentContact.customFields ?? {}) }
+      };
+    }),
+    ...currentContacts.filter((contact) => !initialState.contacts.some((seedContact) => seedContact.id === contact.id))
+  ];
+  const currentGroups = state.groups?.length ? state.groups : initialState.groups;
+  const groupsById = new Map(currentGroups.map((group) => [group.id, group]));
+  const hydratedGroups = [
+    ...initialState.groups.map((seedGroup, index) => {
+      const currentGroup = groupsById.get(seedGroup.id);
+      if (!needsDemoDataRefresh || !currentGroup) return currentGroup ?? seedGroup;
+      return {
+        ...seedGroup,
+        ...currentGroup,
+        color: currentGroup.color || seedGroup.color || groupColorOptions[index % groupColorOptions.length],
+        tags: unique([...seedGroup.tags, ...(currentGroup.tags ?? [])]),
+        contactIds: unique([...seedGroup.contactIds, ...(currentGroup.contactIds ?? [])]),
+        members: unique([...seedGroup.members, ...(currentGroup.members ?? [])])
+      };
+    }),
+    ...currentGroups.filter((group) => !initialState.groups.some((seedGroup) => seedGroup.id === group.id))
+  ];
+
+  return {
+    ...state,
+    schemaVersion: APP_SCHEMA_VERSION,
+    profile: {
+      ...initialState.profile,
+      ...state.profile,
+      visibility: needsDemoDataRefresh && state.profile?.id === initialState.profile.id ? "private" : state.profile?.visibility ?? "private",
+      tags: state.profile?.tags ?? initialState.profile.tags,
+      links: state.profile?.links ?? initialState.profile.links
+    },
+    contacts: hydratedContacts.map((contact) => ({
+      ...contact,
+      tags: contact.tags ?? [],
+      links: contact.links ?? [],
+      groupIds: contact.groupIds ?? [],
+      customFields: contact.customFields ?? {}
+    })),
+    groups: hydratedGroups.map((group, index) => ({
+      ...group,
+      color: group.color || groupColorOptions[index % groupColorOptions.length],
+      tags: group.tags ?? [],
+      contactIds: group.contactIds ?? [],
+      members: group.members ?? []
+    })),
+    customFields: state.customFields ?? initialState.customFields,
+    chatMessages: state.chatMessages ?? initialState.chatMessages
+  };
 }
 
 function NetworkBackdrop({ className = "", density = 72, interactive = true }: { className?: string; density?: number; interactive?: boolean }) {
@@ -153,10 +226,16 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
         if (particle.x > 1.04) particle.x = -0.04;
         if (particle.y < -0.04) particle.y = 1.04;
         if (particle.y > 1.04) particle.y = -0.04;
+        const baseX = particle.x * width + Math.cos(time / 1200 + particle.phase) * 8;
+        const baseY = particle.y * height + Math.sin(time / 1500 + particle.phase) * 8;
+        const pointer = pointerRef.current;
+        const distanceToPointer = pointer.active ? Math.hypot(pointer.x - baseX, pointer.y - baseY) : 9999;
+        const pull = pointer.active && distanceToPointer < 220 ? (1 - distanceToPointer / 220) * 0.12 : 0;
         return {
           ...particle,
-          px: particle.x * width + Math.cos(time / 1200 + particle.phase) * 8,
-          py: particle.y * height + Math.sin(time / 1500 + particle.phase) * 8
+          px: baseX + (pointer.x - baseX) * pull,
+          py: baseY + (pointer.y - baseY) * pull,
+          distanceToPointer
         };
       });
 
@@ -178,12 +257,31 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
 
       if (pointerRef.current.active && interactive) {
         const pointer = pointerRef.current;
+        for (const point of points) {
+          if (point.distanceToPointer > 230) continue;
+          const opacity = (1 - point.distanceToPointer / 230) * 0.62;
+          context.strokeStyle = `rgba(96, 242, 213, ${opacity})`;
+          context.lineWidth = 0.7 + opacity * 1.2;
+          context.setLineDash([4, 10]);
+          context.beginPath();
+          context.moveTo(pointer.x, pointer.y);
+          context.lineTo(point.px, point.py);
+          context.stroke();
+        }
+        context.setLineDash([]);
+
         const gradient = context.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, 220);
         gradient.addColorStop(0, "rgba(88, 166, 255, 0.22)");
         gradient.addColorStop(0.42, "rgba(63, 185, 80, 0.08)");
         gradient.addColorStop(1, "rgba(88, 166, 255, 0)");
         context.fillStyle = gradient;
         context.fillRect(0, 0, width, height);
+
+        context.beginPath();
+        context.strokeStyle = "rgba(96, 242, 213, 0.42)";
+        context.lineWidth = 1.2;
+        context.arc(pointer.x, pointer.y, 34 + Math.sin(time / 240) * 6, 0, Math.PI * 2);
+        context.stroke();
       }
 
       for (const point of points) {
@@ -226,6 +324,10 @@ function App() {
   const [selectedContactId, setSelectedContactId] = useState(state.contacts[0]?.id ?? "");
 
   const selectedContact = state.contacts.find((contact) => contact.id === selectedContactId) ?? state.contacts[0];
+
+  useEffect(() => {
+    setState((current) => hydrateState(current));
+  }, [setState]);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -273,7 +375,7 @@ function App() {
     setSelectedContactId(primaryId);
   };
 
-  const addGroup = (name: string, description: string) => {
+  const addGroup = (name: string, description: string, tags: string[] = [], color = groupColorOptions[0]) => {
     setState((current) => ({
       ...current,
       groups: [
@@ -282,13 +384,34 @@ function App() {
           name,
           description,
           role: "admin",
+          color,
           members: [session?.email ?? "usuario@grafy.local"],
           contactIds: [],
-          tags: [],
+          tags,
           createdAt: new Date().toISOString()
         },
         ...current.groups
       ]
+    }));
+  };
+
+  const updateGroup = (id: string, patch: Partial<GrafyState["groups"][number]>) => {
+    setState((current) => ({
+      ...current,
+      groups: current.groups.map((group) => (group.id === id ? { ...group, ...patch } : group))
+    }));
+  };
+
+  const addContactToGroup = (groupId: string, contactId: string) => {
+    if (!contactId) return;
+    setState((current) => ({
+      ...current,
+      groups: current.groups.map((group) =>
+        group.id === groupId ? { ...group, contactIds: unique([...group.contactIds, contactId]) } : group
+      ),
+      contacts: current.contacts.map((contact) =>
+        contact.id === contactId ? { ...contact, groupIds: unique([...contact.groupIds, groupId]) } : contact
+      )
     }));
   };
 
@@ -313,6 +436,8 @@ function App() {
       deleteContact={deleteContact}
       approveMerge={approveMerge}
       addGroup={addGroup}
+      updateGroup={updateGroup}
+      addContactToGroup={addContactToGroup}
       addCustomField={addCustomField}
       onLogout={() => setSession(null)}
       sessionEmail={session.email}
@@ -331,7 +456,9 @@ interface AppShellProps {
   updateContact: (id: string, patch: Partial<Contact>) => void;
   deleteContact: (id: string) => void;
   approveMerge: (primaryId: string, duplicateId: string) => void;
-  addGroup: (name: string, description: string) => void;
+  addGroup: (name: string, description: string, tags?: string[], color?: string) => void;
+  updateGroup: (id: string, patch: Partial<GrafyState["groups"][number]>) => void;
+  addContactToGroup: (groupId: string, contactId: string) => void;
   addCustomField: (field: CustomField) => void;
   onLogout: () => void;
   sessionEmail: string;
@@ -346,7 +473,7 @@ function AppShell(props: AppShellProps) {
     <div className="app">
       <NetworkBackdrop className="app-live-network" density={48} />
       <aside className="sidebar">
-        <button className="brand" onClick={() => setView("dashboard")} aria-label="Ir para inicio">
+        <button className="brand" onClick={() => setView("dashboard")} aria-label="Ir para o início">
           <span className="brand-mark">
             <Network size={22} />
           </span>
@@ -356,7 +483,7 @@ function AppShell(props: AppShellProps) {
           </span>
         </button>
 
-        <nav className="nav-list" aria-label="Navegacao principal">
+        <nav className="nav-list" aria-label="Navegação principal">
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -414,7 +541,7 @@ function AppShell(props: AppShellProps) {
         </section>
       </main>
 
-      <nav className="mobile-tabs" aria-label="Navegacao mobile">
+      <nav className="mobile-tabs" aria-label="Navegação mobile">
         {mobileNavOrder.map((key) => navItems.find((item) => item.key === key)!).map((item) => {
           const Icon = item.icon;
           return (
@@ -442,10 +569,10 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
 
   const handleGoogleLogin = () => {
     if (!googleClientConfigured) {
-      setStatus("Google ainda nao esta configurado neste ambiente. Adicione VITE_GOOGLE_CLIENT_ID e o fluxo OAuth para ativar login e contatos reais.");
+      setStatus("Google ainda não está configurado neste ambiente. Adicione VITE_GOOGLE_CLIENT_ID e o fluxo OAuth para ativar login e contatos reais.");
       return;
     }
-    setStatus("Cliente Google detectado. A proxima etapa e conectar OAuth seguro com Supabase e People API.");
+    setStatus("Cliente Google detectado. A próxima etapa é conectar OAuth seguro com Supabase e People API.");
   };
 
   return (
@@ -462,7 +589,7 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
           </span>
         </button>
         <div className="auth-topbar-actions">
-          <span>Privado por padrao</span>
+          <span>Privado por padrão</span>
           <span>Google Contacts ready</span>
           <span>PWA mobile-first</span>
         </div>
@@ -481,16 +608,16 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
           </h1>
           <p>
             Transforme contatos soltos em um mapa vivo de pessoas, demandas, problemas resolvidos, grupos e oportunidades
-            de introducao.
+            de introdução.
           </p>
           <div className="auth-proof">
             <span><Lock size={15} /> dados privados</span>
             <span><Network size={15} /> grafo interativo</span>
-            <span><Sparkles size={15} /> inteligencia de networking</span>
+            <span><Sparkles size={15} /> inteligência de networking</span>
           </div>
           <div className="auth-value-grid">
             <Info icon={ContactRound} label="Contatos" value="Importe, dedupe e qualifique sua base" />
-            <Info icon={Users} label="Grupos" value="Comunidades e eventos com grafo proprio" />
+            <Info icon={Users} label="Grupos" value="Comunidades e eventos com grafo próprio" />
             <Info icon={Bot} label="Copiloto" value="Pergunte quem resolve, busca ou conecta" />
           </div>
         </div>
@@ -520,7 +647,7 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
             <div className="preview-insights">
               <div>
                 <span>Match sugerido</span>
-                <strong>Ana precisa de CTO. Bruno recruta liderancas tech.</strong>
+                <strong>Ana precisa de CTO. Bruno recruta lideranças tech.</strong>
               </div>
               <div>
                 <span>Demanda recente</span>
@@ -532,7 +659,7 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
           <form className="auth-card" onSubmit={submit}>
             <div className="auth-card-head">
               <div>
-                <h2>Entrar no prototipo</h2>
+                <h2>Entrar no protótipo</h2>
                 <p>Use seu email para criar um workspace local de teste neste navegador.</p>
               </div>
               <span className="status-dot live" />
@@ -540,7 +667,7 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
             <button className="google-button" type="button" onClick={handleGoogleLogin}>
               <Globe2 size={18} />
               Continuar com Google
-              <small>{googleClientConfigured ? "configurado" : "nao configurado"}</small>
+              <small>{googleClientConfigured ? "configurado" : "não configurado"}</small>
             </button>
             <div className="auth-divider"><span>ou entre com email</span></div>
             <label>
@@ -560,7 +687,7 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
               Entrar sem senha real
             </button>
             <p className="prototype-note">
-              Ambiente demonstrativo: dados ficam somente neste navegador. Login real com Supabase/Google entra na proxima fase.
+              Ambiente demonstrativo: dados ficam somente neste navegador. Login real com Supabase/Google entra na próxima fase.
             </p>
             {status && <p className="auth-status">{status}</p>}
           </form>
@@ -577,21 +704,21 @@ function LandingSections({ onLogin }: { onLogin: () => void }) {
     {
       icon: ContactRound,
       title: "Contatos deixam de ser uma lista fria",
-      body: "Cada pessoa carrega demandas, problemas que resolve, tags, origem, DDD, grupos e vinculos publicos. O Grafy transforma isso em contexto navegavel.",
+      body: "Cada pessoa carrega demandas, problemas que resolve, tags, origem, DDD, grupos e vínculos públicos. O Grafy transforma isso em contexto navegável.",
       stat: "12 contatos demo",
       meta: "dedupe, tags e campos"
     },
     {
       icon: Network,
       title: "O grafo vira uma camada de leitura da rede",
-      body: "Pessoas, tags, fontes, grupos e oportunidades aparecem como nos conectados. O usuario filtra, aproxima, clica e entende caminhos de introducao.",
-      stat: "38+ relacoes",
+      body: "Pessoas, tags, fontes, grupos e oportunidades aparecem como nós conectados. O usuário filtra, aproxima, clica e entende caminhos de introdução.",
+      stat: "38+ relações",
       meta: "matches e filtros"
     },
     {
       icon: Bot,
       title: "Busca e copiloto ajudam a achar a pessoa certa",
-      body: "Perguntas como quem resolve limpeza, quem busca investimento ou quem esta em determinado DDD retornam contatos relevantes com explicacao.",
+      body: "Perguntas como quem resolve limpeza, quem busca investimento ou quem está em determinado DDD retornam contatos relevantes com explicação.",
       stat: "busca estruturada",
       meta: "pronto para IA"
     }
@@ -608,10 +735,10 @@ function LandingSections({ onLogin }: { onLogin: () => void }) {
       >
         <div>
           <span className="context public">como funciona</span>
-          <h2>Uma base privada, uma rede publica opcional e grupos com inteligencia propria.</h2>
+          <h2>Uma base privada, uma rede pública opcional e grupos com inteligência própria.</h2>
           <p>
             O PRD do Grafy pede um CRM pessoal de networking, mas com camadas de comunidade. A landing agora mostra essa
-            arquitetura antes do usuario entrar, sem misturar tudo em uma tela apertada.
+            arquitetura antes do usuário entrar, sem misturar tudo em uma tela apertada.
           </p>
         </div>
         <div className="flow-rail">
@@ -659,12 +786,12 @@ function LandingSections({ onLogin }: { onLogin: () => void }) {
           <span className="context group">experiencia visual</span>
           <h2>O fundo acompanha o mouse para a rede parecer viva.</h2>
           <p>
-            A camada de particulas usa canvas leve, conexoes dinamicas e um spotlight que reage ao cursor. Isso conversa
-            com a ideia central do produto: uma rede que responde quando voce explora.
+            A camada de partículas usa canvas leve, conexões dinâmicas e um spotlight que reage ao cursor. Isso conversa
+            com a ideia central do produto: uma rede que responde quando você explora.
           </p>
           <button className="primary-button glow-button" onClick={onLogin}>
             <Sparkles size={18} />
-            Abrir prototipo
+            Abrir protótipo
           </button>
         </div>
         <div className="landing-orbit">
@@ -695,10 +822,10 @@ function Dashboard({ state, setView, setSelectedContactId }: AppShellProps) {
       <div className="hero-panel command-center">
         <div>
           <span className="context public">rede privada + grupos + descoberta</span>
-          <h2>Inteligencia da sua rede</h2>
+          <h2>Inteligência da sua rede</h2>
           <p>
-            O Grafy cruza contatos, tags, DDDs, grupos, demandas e problemas resolvidos para revelar introducoes e
-            oportunidades acionaveis.
+            O Grafy cruza contatos, tags, DDDs, grupos, demandas e problemas resolvidos para revelar introduções e
+            oportunidades acionáveis.
           </p>
           <div className="hero-actions">
             <button className="primary-button" onClick={() => setView("graph")}>
@@ -725,9 +852,9 @@ function Dashboard({ state, setView, setSelectedContactId }: AppShellProps) {
 
       <div className="onboarding-strip">
         {[
-          ["1", "Perfil", "visivel na rede"],
-          ["2", "Importacao", "CSV pronto, Google pendente"],
-          ["3", "Dedupe", `${duplicates.length} sugestao`],
+          ["1", "Perfil", state.profile.visibility === "platform" ? "visível na rede" : "privado por padrão"],
+          ["2", "Importação", "CSV pronto, Google pendente"],
+          ["3", "Dedupe", `${duplicates.length} sugestão`],
           ["4", "Primeiros insights", `${matches.length} matches`]
         ].map(([step, title, body]) => (
           <button key={step} onClick={() => setView(step === "2" ? "import" : step === "4" ? "chat" : "profile")}>
@@ -741,7 +868,7 @@ function Dashboard({ state, setView, setSelectedContactId }: AppShellProps) {
       <div className="metric-grid">
         <Metric icon={ContactRound} label="Contatos" value={state.contacts.length} tone="cyan" />
         <Metric icon={Tags} label="Tags ativas" value={tags.length} tone="green" />
-        <Metric icon={Globe2} label="Perfis publicos" value={publicCount} tone="amber" />
+        <Metric icon={Globe2} label="Perfis públicos" value={publicCount} tone="amber" />
         <Metric icon={ShieldCheck} label="Duplicados" value={duplicates.length} tone="coral" />
       </div>
 
@@ -767,7 +894,7 @@ function Dashboard({ state, setView, setSelectedContactId }: AppShellProps) {
           </div>
         </Panel>
 
-        <Panel title="Follow-ups proximos" action="Contatos" onAction={() => setView("contacts")}>
+        <Panel title="Follow-ups próximos" action="Contatos" onAction={() => setView("contacts")}>
           <div className="timeline-list">
             {upcoming.map((contact) => (
               <button
@@ -788,7 +915,7 @@ function Dashboard({ state, setView, setSelectedContactId }: AppShellProps) {
           </div>
         </Panel>
 
-        <Panel title="Tags mais uteis" action="Grafo" onAction={() => setView("graph")}>
+        <Panel title="Tags mais úteis" action="Grafo" onAction={() => setView("graph")}>
           <div className="tag-cloud">
             {tags.slice(0, 18).map((tag) => (
               <span key={tag} className="tag-chip">{tag}</span>
@@ -854,8 +981,8 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
           <div className="alert-card">
             <ShieldCheck size={18} />
             <div>
-              <strong>{suggestions.length} possivel duplicado</strong>
-              <p>Revise antes de mesclar. O Grafy nunca faz merge automatico.</p>
+              <strong>{suggestions.length} possível duplicado</strong>
+              <p>Revise antes de mesclar. O Grafy nunca faz merge automático.</p>
             </div>
           </div>
         )}
@@ -901,7 +1028,7 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
             approveMerge={approveMerge}
           />
         ) : (
-          <EmptyState title="Selecione um contato" body="A lista esta pronta para busca, filtros, detalhes e revisao de duplicados." />
+          <EmptyState title="Selecione um contato" body="A lista está pronta para busca, filtros, detalhes e revisão de duplicados." />
         )}
       </section>
     </div>
@@ -934,7 +1061,7 @@ function ContactDetail({
         <div>
           <div className="context-row">
             <span className="context private">Privado</span>
-            {contact.isPublic && <span className="context public">Publico</span>}
+            {contact.isPublic && <span className="context public">Público</span>}
             {contact.groupIds.length > 0 && <span className="context group">Grupo</span>}
           </div>
           <h2>{contact.name}</h2>
@@ -947,8 +1074,8 @@ function ContactDetail({
         return (
           <div key={suggestion.id} className="merge-card">
             <div>
-              <strong>Possivel duplicado: {other.name}</strong>
-              <p>{suggestion.reason} com {Math.round(suggestion.confidence * 100)}% de confianca.</p>
+              <strong>Possível duplicado: {other.name}</strong>
+              <p>{suggestion.reason} com {Math.round(suggestion.confidence * 100)}% de confiança.</p>
             </div>
             <button className="secondary-button compact" onClick={() => approveMerge(contact.id, other.id)}>
               <Check size={16} />
@@ -960,7 +1087,7 @@ function ContactDetail({
 
       <div className="detail-grid">
         <label>
-          Descricao
+          Descrição
           <textarea value={contact.description} onChange={(event) => updateContact(contact.id, { description: event.target.value })} />
         </label>
         <label>
@@ -984,7 +1111,7 @@ function ContactDetail({
       <div className="info-grid">
         <Info icon={Mail} label="Emails" value={contact.emails.join(", ") || "Sem email"} />
         <Info icon={Phone} label="Telefones" value={contact.phones.join(", ") || "Sem telefone"} />
-        <Info icon={CircleDot} label="DDD" value={contact.ddd ? `DDD ${contact.ddd}` : "Nao calculado"} />
+        <Info icon={CircleDot} label="DDD" value={contact.ddd ? `DDD ${contact.ddd}` : "Não calculado"} />
         <Info icon={Database} label="Fonte" value={contact.source} />
       </div>
 
@@ -1000,7 +1127,7 @@ function ContactDetail({
       <div className="detail-actions">
         <button className="secondary-button" onClick={() => updateContact(contact.id, { isPublic: !contact.isPublic })}>
           <Eye size={17} />
-          {contact.isPublic ? "Ocultar da rede" : "Tornar publico"}
+          {contact.isPublic ? "Ocultar da rede" : "Tornar público"}
         </button>
         <button className="danger-button" onClick={() => deleteContact(contact.id)}>
           <Trash2 size={17} />
@@ -1056,7 +1183,7 @@ function ContactForm({ onSave, onCancel }: { onSave: (contact: Contact) => void;
       </div>
       <label>Nome<input value={name} onChange={(event) => setName(event.target.value)} required /></label>
       <label>Cargo ou contexto<input value={headline} onChange={(event) => setHeadline(event.target.value)} /></label>
-      <label>Descricao<textarea value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+      <label>Descrição<textarea value={description} onChange={(event) => setDescription(event.target.value)} /></label>
       <label>Tags<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="marketing, eventos, tecnologia" /></label>
       <label>Emails<input value={emails} onChange={(event) => setEmails(event.target.value)} /></label>
       <label>Telefones<input value={phones} onChange={(event) => setPhones(event.target.value)} /></label>
@@ -1072,8 +1199,8 @@ function ContactForm({ onSave, onCancel }: { onSave: (contact: Contact) => void;
 
 function ImportView({ addContact, state, setView }: AppShellProps) {
   const exampleCsv = `nome,email,telefone,tags,descricao,demanda,resolve
-Paula Andrade,paula@pa.com,85999990000,"educacao,ia,treinamento","Treinadora corporativa em IA","Busca empresas para programas de capacitacao","Treinamentos de IA aplicada"
-Diego Martins,diego@ops.com,11933334444,"operacoes,logistica,pme","Consultor de operacoes","Procura PMEs com gargalos operacionais","Melhora processos e indicadores"`;
+Paula Andrade,paula@pa.com,85999990000,"educação,IA,treinamento,B2B","Treinadora corporativa em IA","Busca empresas para programas de capacitação","Treinamentos de IA aplicada"
+Diego Martins,diego@ops.com,11933334444,"operações,logística,PME,consultoria","Consultor de operações","Procura PMEs com gargalos operacionais","Melhora processos e indicadores"`;
   const [csv, setCsv] = useState(exampleCsv);
   const [googleStatus, setGoogleStatus] = useState("");
   const [linkedinQuery, setLinkedinQuery] = useState("");
@@ -1108,10 +1235,10 @@ Diego Martins,diego@ops.com,11933334444,"operacoes,logistica,pme","Consultor de 
 
   const connectGoogle = () => {
     if (!googleClientConfigured) {
-      setGoogleStatus("Google Contacts ainda nao esta ativo. Configure VITE_GOOGLE_CLIENT_ID, origem OAuth e uma Edge Function/Supabase para usar People API com seguranca.");
+      setGoogleStatus("Google Contacts ainda não está ativo. Configure VITE_GOOGLE_CLIENT_ID, origem OAuth e uma Edge Function/Supabase para usar People API com segurança.");
       return;
     }
-    setGoogleStatus("Cliente Google encontrado. Proxima etapa: abrir consentimento OAuth e importar via People API.");
+    setGoogleStatus("Cliente Google encontrado. Próxima etapa: abrir consentimento OAuth e importar via People API.");
   };
 
   const openLinkedinResearch = (name: string) => {
@@ -1125,8 +1252,8 @@ Diego Martins,diego@ops.com,11933334444,"operacoes,logistica,pme","Consultor de 
     <div className="screen import-screen">
       <div className="import-grid">
         <section className="import-card">
-          <h2>Importacao CSV</h2>
-          <p>Mapeamento automatico para nome, email, telefone, tags, descricao, demanda e problema resolvido.</p>
+          <h2>Importação CSV</h2>
+          <p>Mapeamento automático para nome, email, telefone, tags, descrição, demanda e problema resolvido.</p>
           <textarea className="csv-box" value={csv} onChange={(event) => setCsv(event.target.value)} />
           <div className="button-row">
             <button className="secondary-button" onClick={() => setCsv(exampleCsv)}>
@@ -1160,7 +1287,7 @@ Diego Martins,diego@ops.com,11933334444,"operacoes,logistica,pme","Consultor de 
             <h3>Google / Gmail Contacts</h3>
             <p>
               Para puxar contatos reais do email, o Grafy precisa de OAuth Google, escopo de contatos e backend seguro para
-              tokens. Este ambiente local ainda nao tem client id configurado.
+              tokens. Este ambiente ainda não tem client id configurado.
             </p>
             {googleStatus && <p className="integration-note">{googleStatus}</p>}
           </div>
@@ -1168,7 +1295,7 @@ Diego Martins,diego@ops.com,11933334444,"operacoes,logistica,pme","Consultor de 
             <Globe2 size={16} />
             Testar Google
           </button>
-          <span className={googleClientConfigured ? "status-pill live" : "status-pill"}>{googleClientConfigured ? "client id detectado" : "nao configurado"}</span>
+          <span className={googleClientConfigured ? "status-pill live" : "status-pill"}>{googleClientConfigured ? "client id detectado" : "não configurado"}</span>
         </section>
 
         <section className="integration-card">
@@ -1182,7 +1309,7 @@ Diego Martins,diego@ops.com,11933334444,"operacoes,logistica,pme","Consultor de 
         <section className="integration-card">
           <div>
             <h3>LinkedIn e Meetup</h3>
-            <p>Conectores preparados como arquitetura segura: OAuth, preview, deduplicacao e revisao humana antes de gravar no CRM.</p>
+            <p>Conectores preparados como arquitetura segura: OAuth, preview, deduplicação e revisão humana antes de gravar no CRM.</p>
           </div>
           <button className="secondary-button compact" onClick={() => setView("integrations")}>
             <Link2 size={16} />
@@ -1193,8 +1320,8 @@ Diego Martins,diego@ops.com,11933334444,"operacoes,logistica,pme","Consultor de 
         <section className="import-card linkedin-research">
           <h2>Enriquecimento LinkedIn seguro</h2>
           <p>
-            O Grafy pode abrir pesquisas assistidas para o usuario confirmar cargo/empresa. Evitamos scraping automatico
-            logado no LinkedIn; a atualizacao entra por revisao humana ou API autorizada.
+            O Grafy pode abrir pesquisas assistidas para o usuário confirmar cargo/empresa. Evitamos scraping automático
+            logado no LinkedIn; a atualização entra por revisão humana ou API autorizada.
           </p>
           <div className="search-box">
             <Search size={17} />
@@ -1228,10 +1355,10 @@ function IntegrationsView({ state, setView }: AppShellProps) {
       status: googleClientConfigured ? "OAuth quase pronto" : "Precisa client id",
       tone: googleClientConfigured ? "live" : "",
       description:
-        "Fonte principal para importar contatos reais do Gmail com consentimento do usuario, People API e backend seguro para tokens.",
-      data: ["nome", "emails", "telefones", "foto", "origem Google"],
-      graph: ["importado de", "tem DDD", "possivel duplicado"],
-      action: "Abrir importacao",
+        "Fonte principal para importar contatos reais do Gmail com consentimento, People API e backend seguro para tokens.",
+      data: ["Nome", "emails", "telefones", "foto", "origem Google"],
+      graph: ["importado de", "tem DDD", "possível duplicado"],
+      action: "Abrir importação",
       url: "internal"
     },
     {
@@ -1240,10 +1367,10 @@ function IntegrationsView({ state, setView }: AppShellProps) {
       status: "Oficial ou assistido",
       tone: "attention",
       description:
-        "Bom para login/perfil proprio e enriquecimento revisado. Nao deve fazer scraping logado nem prometer leitura livre de cargos e conexoes.",
-      data: ["perfil proprio", "cargo revisado", "empresa", "url publica"],
-      graph: ["vinculado a usuario", "trabalha em", "resolve algo"],
-      action: "Catalogo LinkedIn",
+        "Bom para perfil profissional e enriquecimento revisado. Sem scraping logado; usamos API oficial ou revisão humana.",
+      data: ["perfil próprio", "cargo revisado", "empresa", "URL pública"],
+      graph: ["vinculado a usuário", "trabalha em", "resolve algo"],
+      action: "Catálogo LinkedIn",
       url: "https://developer.linkedin.com/product-catalog"
     },
     {
@@ -1264,7 +1391,7 @@ function IntegrationsView({ state, setView }: AppShellProps) {
       status: "Contrato preparado",
       tone: "live",
       description:
-        "Deixa a plataforma pronta para receber conectores externos, webhooks e importadores corporativos sem acoplar tudo ao front-end.",
+        "Deixa a plataforma pronta para conectores externos, webhooks e importadores corporativos sem acoplar tudo ao front-end.",
       data: ["contacts", "groups", "tags", "merge_suggestions"],
       graph: ["graph_edges", "custom_fields", "import_jobs"],
       action: "Ver README",
@@ -1279,41 +1406,48 @@ function IntegrationsView({ state, setView }: AppShellProps) {
           <span className="context public">arquitetura de dados</span>
           <h2>Conectores para dados reais de networking</h2>
           <p>
-            O Grafy deve importar dados reais com consentimento, mostrar preview, sugerir merge e so enriquecer contatos
-            quando o usuario aprovar. Essa e a base para usar Google, LinkedIn, Meetup e APIs futuras sem quebrar privacidade.
+            O Grafy deve importar dados reais com consentimento, mostrar preview, sugerir merge e só enriquecer contatos
+            quando o usuário aprovar. Essa é a base para usar Google, LinkedIn, Meetup e APIs futuras sem quebrar privacidade.
           </p>
         </div>
         <div className="connector-metrics">
-          <Info icon={ContactRound} label="Base atual" value={`${state.contacts.length} contatos no prototipo`} />
-          <Info icon={ShieldCheck} label="Privacidade" value="Contato privado por padrao, publico so com opt-in" />
-          <Info icon={Network} label="Grafo" value="Toda fonte vira no, relacao e filtro visual" />
+          <Info icon={ContactRound} label="Base atual" value={`${state.contacts.length} contatos no protótipo`} />
+          <Info icon={ShieldCheck} label="Privacidade" value="Contato privado por padrão, público só com opt-in" />
+          <Info icon={Network} label="Grafo" value="Toda fonte vira nó, relação e filtro visual" />
         </div>
       </section>
 
-      <div className="connector-grid">
+      <section className="integration-map">
+        <div className="integration-map-copy">
+          <h3>Como uma fonte vira inteligência</h3>
+          <p>Ao conectar uma fonte, o Grafy não grava tudo direto: primeiro normaliza, mostra preview, cruza duplicados e cria relações no grafo.</p>
+        </div>
+        <div className="integration-roadmap">
+          {["Conectar", "Normalizar", "Revisar", "Gerar grafo"].map((step, index) => (
+            <div key={step}>
+              <span>{index + 1}</span>
+              <strong>{step}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="connector-grid organized">
         {connectors.map((connector) => {
           const Icon = connector.icon;
           return (
             <article className="connector-card" key={connector.name}>
               <header>
                 <span className="connector-icon"><Icon size={18} /></span>
-                <span className={`status-pill ${connector.tone}`}>{connector.status}</span>
+                <div>
+                  <h3>{connector.name}</h3>
+                  <span className={`status-pill ${connector.tone}`}>{connector.status}</span>
+                </div>
               </header>
-              <h3>{connector.name}</h3>
               <p>{connector.description}</p>
-              <div className="connector-columns">
-                <div>
-                  <strong>Dados uteis</strong>
-                  <div className="tag-cloud compact">
-                    {connector.data.map((item) => <span className="tag-chip" key={item}>{item}</span>)}
-                  </div>
-                </div>
-                <div>
-                  <strong>Vira grafo</strong>
-                  <div className="tag-cloud compact">
-                    {connector.graph.map((item) => <span className="tag-chip" key={item}>{item}</span>)}
-                  </div>
-                </div>
+              <div className="connector-lanes">
+                <ConnectorLane title="Dados úteis" items={connector.data} />
+                <ConnectorLane title="Vira grafo" items={connector.graph} />
               </div>
               <button
                 className="secondary-button compact"
@@ -1337,11 +1471,11 @@ function IntegrationsView({ state, setView }: AppShellProps) {
         </div>
         <div className="workflow-steps">
           {[
-            ["1", "Conectar fonte", "OAuth ou arquivo autorizado pelo usuario."],
+            ["1", "Conectar fonte", "OAuth ou arquivo autorizado pelo usuário."],
             ["2", "Normalizar", "Emails, telefones, DDDs, tags, empresas e origem."],
             ["3", "Preview e merge", "Sugerir duplicados, nunca mesclar automaticamente."],
-            ["4", "Revisao humana", "LinkedIn e dados externos entram como sugestao aprovada."],
-            ["5", "Atualizar grafo", "Criar nos, arestas, filtros e oportunidades de conexao."]
+            ["4", "Revisão humana", "LinkedIn e dados externos entram como sugestão aprovada."],
+            ["5", "Atualizar grafo", "Criar nós, arestas, filtros e oportunidades de conexão."]
           ].map(([step, title, body]) => (
             <div className="workflow-step" key={step}>
               <span>{step}</span>
@@ -1357,13 +1491,61 @@ function IntegrationsView({ state, setView }: AppShellProps) {
   );
 }
 
+function ConnectorLane({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="connector-lane">
+      <strong>{title}</strong>
+      <div>
+        {items.map((item) => <span key={item}>{item}</span>)}
+      </div>
+    </div>
+  );
+}
+
 function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
   const [query, setQuery] = useState("");
   const [groupId, setGroupId] = useState("");
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [zoom, setZoom] = useState(1);
-  const graph = useMemo(() => buildGraph(state, query, groupId || undefined), [groupId, query, state]);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
+  const graph = useMemo(() => buildGraph(state, query, groupId || undefined, activeFilters), [activeFilters, groupId, query, state]);
   const nodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
+  const availableTags = getGraphFilterTags(state.contacts, state.groups);
+
+  const toggleFilter = (tag: string) => {
+    setActiveFilters((current) =>
+      current.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag))
+        ? current.filter((item) => normalizeGraphTag(item) !== normalizeGraphTag(tag))
+        : [...current, tag]
+    );
+  };
+
+  const onPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
+    const target = event.target as Element;
+    if (target.closest(".graph-node")) return;
+    dragRef.current = { x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (!dragRef.current) return;
+    setPan({
+      x: dragRef.current.panX + event.clientX - dragRef.current.x,
+      y: dragRef.current.panY + event.clientY - dragRef.current.y
+    });
+  };
+
+  const endPan = (event: React.PointerEvent<SVGSVGElement>) => {
+    dragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  const onWheel = (event: React.WheelEvent<SVGSVGElement>) => {
+    event.preventDefault();
+    setZoom((value) => Math.min(1.85, Math.max(0.55, value + (event.deltaY < 0 ? 0.08 : -0.08))));
+  };
 
   return (
     <div className="screen graph-screen">
@@ -1378,15 +1560,64 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
             <option key={group.id} value={group.id}>{group.name}</option>
           ))}
         </select>
-        <button className="icon-button" onClick={() => setZoom((value) => Math.max(0.75, value - 0.1))}>-</button>
-        <button className="icon-button" onClick={() => setZoom((value) => Math.min(1.35, value + 0.1))}>+</button>
+        <button className="icon-button" onClick={() => setZoom((value) => Math.max(0.55, value - 0.12))} title="Reduzir zoom" aria-label="Reduzir zoom">
+          <ZoomOut size={17} />
+        </button>
+        <button className="icon-button" onClick={() => setZoom((value) => Math.min(1.85, value + 0.12))} title="Aumentar zoom" aria-label="Aumentar zoom">
+          <ZoomIn size={17} />
+        </button>
+        <button className="secondary-button compact" onClick={() => {
+          setZoom(1);
+          setPan({ x: 0, y: 0 });
+          setActiveFilters([]);
+          setQuery("");
+        }}>
+          <RotateCcw size={16} />
+          Resetar visão
+        </button>
+      </section>
+
+      <section className="graph-filter-panel">
+        <div>
+          <strong>Filtros combináveis</strong>
+          <span>{activeFilters.length ? `${activeFilters.length} filtro(s) ativo(s)` : "Escolha cargo, área, DDD, pasta ou estratégia"}</span>
+        </div>
+        <div className="graph-filter-groups">
+          {graphFilterGroups.map((group) => (
+            <div key={group.label} className="filter-family">
+              <small>{group.label}</small>
+              <div>
+                {group.tags
+                  .filter((tag) => availableTags.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag)))
+                  .map((tag) => (
+                    <button
+                      key={tag}
+                      className={activeFilters.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag)) ? "filter-chip active" : "filter-chip"}
+                      onClick={() => toggleFilter(tag)}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="graph-layout">
         <div className="graph-canvas">
           <NetworkBackdrop className="graph-canvas-network" density={42} interactive={false} />
-          <svg viewBox="0 0 960 660" role="img" aria-label="Grafo de networking do Grafy">
-            <g style={{ transform: `translate(480px, 330px) scale(${zoom}) translate(-480px, -330px)` }}>
+          <svg
+            viewBox="0 0 960 660"
+            role="img"
+            aria-label="Grafo de networking do Grafy"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={endPan}
+            onPointerLeave={endPan}
+            onWheel={onWheel}
+          >
+            <g style={{ transform: `translate(${480 + pan.x}px, ${330 + pan.y}px) scale(${zoom}) translate(-480px, -330px)` }}>
               {graph.edges.map((edge) => {
                 const source = nodeMap.get(edge.source);
                 const target = nodeMap.get(edge.target);
@@ -1394,7 +1625,8 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
                 return (
                   <line
                     key={edge.id}
-                    className={`graph-edge ${edge.type === "potencial match" ? "match" : ""}`}
+                    className={`graph-edge ${edge.type === "potencial match" ? "match" : ""} ${edge.type === "afinidade de tag" || edge.type === "mesma pasta" ? "affinity" : ""} ${edge.isDimmed ? "dimmed" : ""}`}
+                    style={{ "--edge-color": edge.color ?? "#7dc7ff" } as React.CSSProperties}
                     x1={source.x}
                     y1={source.y}
                     x2={target.x}
@@ -1403,12 +1635,17 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
                 );
               })}
               {graph.nodes.map((node, index) => (
-                <g key={node.id} className={`graph-node ${node.type}`} style={{ animationDelay: `${(index % 9) * -0.42}s` }} onClick={() => {
+                <g key={node.id} className={`graph-node ${node.type} ${node.isDimmed ? "dimmed" : ""}`} style={{ animationDelay: `${(index % 9) * -0.42}s`, "--node-color": node.color ?? "#66e7ff" } as React.CSSProperties} onClick={() => {
                   setSelectedNode(node);
                   if (node.contactId) setSelectedContactId(node.contactId);
                 }}>
                   <circle cx={node.x} cy={node.y} r={Math.min(24, node.weight + 8)} />
-                  <text x={node.x} y={node.y + node.weight + 24}>{node.label}</text>
+                  <text className="graph-node-title" x={node.x} y={node.type === "contact" || node.type === "public" ? node.y - 3 : node.y + node.weight + 24}>
+                    {shortGraphLabel(node.label)}
+                  </text>
+                  {(node.type === "contact" || node.type === "public") && (
+                    <text className="graph-node-meta" x={node.x} y={node.y + 13}>{node.meta?.split(" · ")[0].slice(0, 18)}</text>
+                  )}
                 </g>
               ))}
             </g>
@@ -1420,7 +1657,8 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
             <>
               <span className={`context ${selectedNode.type}`}>{selectedNode.type}</span>
               <h2>{selectedNode.label}</h2>
-              <p>{selectedNode.contactId ? "Pessoa conectada a tags, fontes, grupos, DDDs e oportunidades." : "No estrutural usado para filtrar e navegar pela rede."}</p>
+              <p>{selectedNode.contactId ? "Pessoa conectada a tags, fontes, pastas, DDDs e oportunidades." : "Nó estrutural usado para filtrar e navegar pela rede."}</p>
+              {selectedNode.meta && <p className="inspector-meta">{selectedNode.meta}</p>}
               {selectedNode.contactId && (
                 <button className="primary-button" onClick={() => setView("contacts")}>
                   <ChevronRight size={17} />
@@ -1429,13 +1667,14 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
               )}
             </>
           ) : (
-            <EmptyState title="Clique em um no" body="Use filtros, zoom e selecao para navegar pela rede." />
+            <EmptyState title="Clique em um nó" body="Arraste o canvas, use a roda do mouse para zoom e combine filtros como diretoria + finanças." />
           )}
           <div className="legend">
             <span><i className="dot contact" /> contatos</span>
             <span><i className="dot tag" /> tags</span>
-            <span><i className="dot public" /> publico</span>
-            <span><i className="dot group" /> grupos</span>
+            <span><i className="dot public" /> público</span>
+            <span><i className="dot group" /> pastas</span>
+            <span><i className="dot affinity" /> afinidades</span>
           </div>
         </aside>
       </section>
@@ -1443,35 +1682,72 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
   );
 }
 
-function GroupsView({ state, addGroup, setSelectedContactId, setView }: AppShellProps) {
+function normalizeGraphTag(value: string) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function shortGraphLabel(label: string) {
+  if (label.length <= 18) return label;
+  const [first, second] = label.split(" ");
+  return second ? `${first} ${second[0]}.` : `${label.slice(0, 16)}...`;
+}
+
+function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelectedContactId, setView }: AppShellProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [tags, setTags] = useState("");
+  const [color, setColor] = useState(groupColorOptions[0]);
+  const [draftAssignments, setDraftAssignments] = useState<Record<string, string>>({});
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!name.trim()) return;
-    addGroup(name, description);
+    addGroup(name, description, splitList(tags), color);
     setName("");
     setDescription("");
+    setTags("");
+    setColor(groupColorOptions[0]);
   };
 
   return (
     <div className="screen groups-screen">
       <form className="group-create" onSubmit={submit}>
-        <h2>Criar grupo compartilhado</h2>
+        <div>
+          <span className="context group">kanban de pastas</span>
+          <h2>Criar grupo ou pasta estratégica</h2>
+          <p>Pastas criam uma conexão extra no grafo, mesmo quando as pessoas não são da mesma empresa ou área.</p>
+        </div>
         <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Nome do grupo" />
-        <input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Descricao do grupo" />
+        <input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Descrição do grupo" />
+        <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="Tags: diretoria, finanças, evento..." />
+        <div className="color-picker-row">
+          {groupColorOptions.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={option === color ? "color-dot active" : "color-dot"}
+              style={{ "--group-color": option } as React.CSSProperties}
+              onClick={() => setColor(option)}
+              aria-label={`Usar cor ${option}`}
+            />
+          ))}
+        </div>
         <button className="primary-button" type="submit">
           <Plus size={17} />
           Criar grupo
         </button>
       </form>
 
-      <div className="group-grid">
+      <div className="group-board">
         {state.groups.map((group) => {
           const contacts = state.contacts.filter((contact) => group.contactIds.includes(contact.id));
+          const availableContacts = state.contacts.filter((contact) => !group.contactIds.includes(contact.id));
           return (
-            <article className="group-card" key={group.id}>
+            <article className="group-card kanban-column" key={group.id} style={{ "--group-color": group.color || groupColorOptions[0] } as React.CSSProperties}>
               <div className="group-card-head">
                 <div>
                   <span className="context group">{group.role}</span>
@@ -1480,8 +1756,37 @@ function GroupsView({ state, addGroup, setSelectedContactId, setView }: AppShell
                 <Users size={24} />
               </div>
               <p>{group.description}</p>
+              <div className="group-controls">
+                <label>
+                  Cor
+                  <input type="color" value={group.color || groupColorOptions[0]} onChange={(event) => updateGroup(group.id, { color: event.target.value })} />
+                </label>
+                <label>
+                  Tags da pasta
+                  <input
+                    value={group.tags.join(", ")}
+                    onChange={(event) => updateGroup(group.id, { tags: splitList(event.target.value) })}
+                  />
+                </label>
+              </div>
               <div className="tag-cloud compact">
                 {group.tags.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}
+              </div>
+              <div className="group-add-contact">
+                <select
+                  value={draftAssignments[group.id] ?? ""}
+                  onChange={(event) => setDraftAssignments((current) => ({ ...current, [group.id]: event.target.value }))}
+                >
+                  <option value="">Adicionar contato</option>
+                  {availableContacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}
+                </select>
+                <button className="secondary-button compact" onClick={() => {
+                  addContactToGroup(group.id, draftAssignments[group.id] ?? "");
+                  setDraftAssignments((current) => ({ ...current, [group.id]: "" }));
+                }}>
+                  <Plus size={15} />
+                  Adicionar
+                </button>
               </div>
               <div className="group-contact-list">
                 {contacts.map((contact) => (
@@ -1490,7 +1795,10 @@ function GroupsView({ state, addGroup, setSelectedContactId, setView }: AppShell
                     setView("contacts");
                   }}>
                     <span className="avatar small">{initials(contact.name)}</span>
-                    <span>{contact.name}</span>
+                    <span>
+                      <strong>{contact.name}</strong>
+                      <small>{contact.tags.slice(0, 2).join(" · ")}</small>
+                    </span>
                   </button>
                 ))}
               </div>
@@ -1504,17 +1812,27 @@ function GroupsView({ state, addGroup, setSelectedContactId, setView }: AppShell
 
 function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellProps) {
   const [query, setQuery] = useState("");
+  const [tag, setTag] = useState("");
   const publicContacts = searchContacts(state.contacts.filter((contact) => contact.isPublic), query);
+  const filteredPublicContacts = tag ? publicContacts.filter((contact) => contact.tags.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag))) : publicContacts;
   const ownProfileVisible = state.profile.visibility === "platform";
+  const publicTags = getAllTags(publicContacts).slice(0, 12);
 
   return (
     <div className="screen public-screen">
       <section className="public-hero">
         <div>
-          <h2>Rede publica</h2>
-          <p>Perfis aparecem somente quando ha opt-in. Contatos privados continuam isolados do espaco publico.</p>
+          <span className="context public">descoberta com opt-in</span>
+          <h2>Rede pública</h2>
+          <p>
+            A rede é a camada compartilhável do Grafy: mostra apenas perfis e contatos marcados como públicos, ajuda a descobrir
+            quem resolve algo e preserva a base privada do usuário.
+          </p>
         </div>
-        <span className="status-pill live">{publicContacts.length + (ownProfileVisible ? 1 : 0)} perfis visiveis</span>
+        <div className="public-stats">
+          <Info icon={Eye} label="Visíveis" value={`${filteredPublicContacts.length + (ownProfileVisible ? 1 : 0)} perfis`} />
+          <Info icon={ShieldCheck} label="Privacidade" value="Email e telefone ficam fora dos cards públicos" />
+        </div>
       </section>
 
       <div className="section-toolbar">
@@ -1522,6 +1840,19 @@ function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellPro
           <Search size={17} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por tag, demanda ou problema resolvido" />
         </div>
+        <button className="secondary-button compact" onClick={() => setView("graph")}>
+          <Network size={16} />
+          Ver no grafo
+        </button>
+      </div>
+
+      <div className="filter-strip network-filter-strip">
+        <button className={!tag ? "filter-chip active" : "filter-chip"} onClick={() => setTag("")}>Todos</button>
+        {publicTags.map((item) => (
+          <button key={item} className={tag === item ? "filter-chip active" : "filter-chip"} onClick={() => setTag(item)}>
+            {item}
+          </button>
+        ))}
       </div>
 
       <div className="public-grid">
@@ -1535,9 +1866,10 @@ function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellPro
             </div>
             <strong>Resolve</strong>
             <p>{state.profile.problemSolves}</p>
+            <button className="secondary-button compact" onClick={() => setView("profile")}>Editar perfil público</button>
           </article>
         )}
-        {publicContacts.map((contact) => (
+        {filteredPublicContacts.map((contact) => (
           <article className="public-card" key={contact.id}>
             <span className="avatar xl">{initials(contact.name)}</span>
             <h3>{contact.name}</h3>
@@ -1549,13 +1881,17 @@ function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellPro
             <p>{contact.problemSolves}</p>
             <strong>Demanda</strong>
             <p>{contact.currentDemand}</p>
+            <div className="network-reason">
+              <Sparkles size={15} />
+              <span>Entra no grafo por tags, DDD {contact.ddd || "?"}, fonte {contact.source} e opt-in público.</span>
+            </div>
             <div className="button-row">
               <button className="secondary-button compact" onClick={() => {
                 setSelectedContactId(contact.id);
                 setView("contacts");
               }}>
                 <ContactRound size={16} />
-                Ver vinculo
+                Ver vínculo
               </button>
             </div>
           </article>
@@ -1599,18 +1935,23 @@ function ChatView({ state, setState, setSelectedContactId, setView }: AppShellPr
             <div key={message.id} className={`message ${message.role}`}>
               <p>{message.content}</p>
               {message.resultContactIds && message.resultContactIds.length > 0 && (
-                <div className="result-strip">
+                <div className="result-strip rich-results">
                   {unique(message.resultContactIds)
                     .map((id) => state.contacts.find((contact) => contact.id === id))
                     .filter(Boolean)
                     .slice(0, 5)
                     .map((contact) => (
-                      <button key={contact!.id} onClick={() => {
+                      <button className="chat-result-card" key={contact!.id} onClick={() => {
                         setSelectedContactId(contact!.id);
                         setView("contacts");
                       }}>
                         <span className="avatar small">{initials(contact!.name)}</span>
-                        {contact!.name}
+                        <span>
+                          <strong>{contact!.name}</strong>
+                          <small>{contact!.headline || contact!.source}</small>
+                          <em>{contact!.tags.slice(0, 3).join(" · ")}</em>
+                          <b>Resolve: {contact!.problemSolves.slice(0, 96) || "Sem descrição"}</b>
+                        </span>
                       </button>
                     ))}
                 </div>
@@ -1622,7 +1963,7 @@ function ChatView({ state, setState, setSelectedContactId, setView }: AppShellPr
           <input
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
-            placeholder="Ex: quem presta servico de limpeza? quem busca investidor?"
+            placeholder="Ex: quem presta serviço de limpeza? quem busca investidor?"
           />
           <button className="primary-button" type="submit">
             <WandSparkles size={17} />
@@ -1636,41 +1977,80 @@ function ChatView({ state, setState, setSelectedContactId, setView }: AppShellPr
 
 function ProfileView({ state, setState }: AppShellProps) {
   const profile = state.profile;
+  const updateProfile = (patch: Partial<typeof profile>) => {
+    setState((current) => ({ ...current, profile: { ...current.profile, ...patch } }));
+  };
+  const linkValue = (kind: LinkKind) => profile.links.find((link) => link.kind === kind)?.value ?? "";
+  const updateLink = (kind: LinkKind, value: string) => {
+    updateProfile({
+      links: value
+        ? [...profile.links.filter((link) => link.kind !== kind), { kind, value }]
+        : profile.links.filter((link) => link.kind !== kind)
+    });
+  };
+
   return (
     <div className="screen profile-screen">
       <section className="profile-card-large">
         <span className="avatar xxl">{initials(profile.name)}</span>
         <div>
           <span className={`context ${profile.visibility === "platform" ? "public" : "private"}`}>
-            {profile.visibility === "platform" ? "visivel na rede" : "privado"}
+            {profile.visibility === "platform" ? "visível na rede" : "privado"}
           </span>
           <h2>{profile.name}</h2>
           <p>{profile.headline}</p>
+          <div className="tag-cloud compact">
+            {profile.tags.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}
+          </div>
         </div>
       </section>
 
-      <section className="settings-panel">
-        <label>Nome<input value={profile.name} onChange={(event) => setState((current) => ({ ...current, profile: { ...current.profile, name: event.target.value } }))} /></label>
-        <label>Headline<input value={profile.headline} onChange={(event) => setState((current) => ({ ...current, profile: { ...current.profile, headline: event.target.value } }))} /></label>
-        <label>Descricao<textarea value={profile.description} onChange={(event) => setState((current) => ({ ...current, profile: { ...current.profile, description: event.target.value } }))} /></label>
-        <label>Problema que resolve<textarea value={profile.problemSolves} onChange={(event) => setState((current) => ({ ...current, profile: { ...current.profile, problemSolves: event.target.value } }))} /></label>
-        <label>Demanda atual<textarea value={profile.currentDemand} onChange={(event) => setState((current) => ({ ...current, profile: { ...current.profile, currentDemand: event.target.value } }))} /></label>
+      <section className="profile-grid">
+        <div className="settings-panel">
+          <h2>Identidade de networking</h2>
+          <label>Nome<input value={profile.name} onChange={(event) => updateProfile({ name: event.target.value })} /></label>
+          <label>Headline<input value={profile.headline} onChange={(event) => updateProfile({ headline: event.target.value })} /></label>
+          <label>Descrição<textarea value={profile.description} onChange={(event) => updateProfile({ description: event.target.value })} /></label>
+          <label>Tags estratégicas<input value={profile.tags.join(", ")} onChange={(event) => updateProfile({ tags: splitList(event.target.value) })} /></label>
+          <label>Problema que resolve<textarea value={profile.problemSolves} onChange={(event) => updateProfile({ problemSolves: event.target.value })} /></label>
+          <label>Demanda atual<textarea value={profile.currentDemand} onChange={(event) => updateProfile({ currentDemand: event.target.value })} /></label>
+        </div>
+
+        <div className="settings-panel">
+          <h2>Links e sinais externos</h2>
+          <p className="panel-note">Esses links ajudam o Grafy a conectar sua identidade pública com contatos, grupos, oportunidades e futuras integrações oficiais.</p>
+          <label>LinkedIn<input value={linkValue("linkedin")} onChange={(event) => updateLink("linkedin", event.target.value)} placeholder="linkedin.com/in/seu-perfil" /></label>
+          <label>WhatsApp<input value={linkValue("whatsapp")} onChange={(event) => updateLink("whatsapp", event.target.value)} placeholder="+55 11 99999-9999" /></label>
+          <label>Instagram<input value={linkValue("instagram")} onChange={(event) => updateLink("instagram", event.target.value)} placeholder="@seuperfil" /></label>
+          <label>URL<input value={linkValue("url")} onChange={(event) => updateLink("url", event.target.value)} placeholder="https://..." /></label>
+        </div>
+
+        <div className="settings-panel profile-signal-panel">
+          <h2>Como o perfil entra no sistema</h2>
+          <div className="architecture-list">
+            <Info icon={Tags} label="Tags" value="Virarão filtros e nós do grafo público" />
+            <Info icon={Sparkles} label="Demanda" value="Ajuda o chat a sugerir quem pode ajudar você" />
+            <Info icon={Network} label="Problema que resolve" value="Ajuda outros contatos a encontrarem você" />
+          </div>
+        </div>
+
+        <div className="settings-panel">
+          <h2>Visibilidade</h2>
+          <p className="panel-note">Por padrão, seu perfil fica privado. Ao ativar, apenas o card público aparece na Rede; seus contatos privados não são expostos.</p>
         <div className="toggle-row">
           <div>
             <strong>Quero ser visto na minha rede</strong>
-            <span>Controla se o seu card aparece na descoberta publica.</span>
+            <span>Controla se o seu card aparece na descoberta pública.</span>
           </div>
           <button
             className={profile.visibility === "platform" ? "toggle active" : "toggle"}
             onClick={() =>
-              setState((current) => ({
-                ...current,
-                profile: { ...current.profile, visibility: current.profile.visibility === "platform" ? "private" : "platform" }
-              }))
+              updateProfile({ visibility: profile.visibility === "platform" ? "private" : "platform" })
             }
           >
             <span />
           </button>
+        </div>
         </div>
       </section>
     </div>
@@ -1680,6 +2060,39 @@ function ProfileView({ state, setState }: AppShellProps) {
 function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail }: AppShellProps) {
   const [name, setName] = useState("");
   const [type, setType] = useState<CustomField["type"]>("short_text");
+  const [connectorStatus, setConnectorStatus] = useState("Escolha uma integração para ver o caminho seguro de conexão.");
+  const connectorSettings = [
+    {
+      name: "Google Contacts",
+      icon: Globe2,
+      body: "Login Google + People API para puxar nome, sobrenome, email, telefone e foto salvos pelo usuário.",
+      action: "Preparar Google OAuth"
+    },
+    {
+      name: "LinkedIn",
+      icon: Link2,
+      body: "API oficial ou enriquecimento assistido para cargo, empresa e URL pública. Sem scraping logado.",
+      action: "Ver requisitos LinkedIn"
+    },
+    {
+      name: "Instagram",
+      icon: Eye,
+      body: "Integração futura depende das permissões oficiais da Meta. Útil para perfis autorizados e links sociais.",
+      action: "Mapear Meta API"
+    },
+    {
+      name: "X / Twitter",
+      icon: MessageSquare,
+      body: "Integração futura para links e sinais públicos autorizados, sem importar rede privada sem consentimento.",
+      action: "Planejar X API"
+    },
+    {
+      name: "Telefone / WhatsApp",
+      icon: Phone,
+      body: "Normalização de telefones, DDD, WhatsApp e contatos importados de CSV/Google.",
+      action: "Validar telefones"
+    }
+  ];
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -1697,7 +2110,7 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
   };
 
   const resetPrototypeAccount = () => {
-    const shouldReset = window.confirm("Apagar a conta de teste deste navegador? Isso remove contatos, grupos e sessao local do prototipo.");
+    const shouldReset = window.confirm("Apagar a conta de teste deste navegador? Isso remove contatos, grupos e sessão local do protótipo.");
     if (!shouldReset) return;
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(SESSION_KEY);
@@ -1714,7 +2127,7 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
           <select value={type} onChange={(event) => setType(event.target.value as CustomField["type"])}>
             <option value="short_text">Texto curto</option>
             <option value="long_text">Texto longo</option>
-            <option value="number">Numero</option>
+            <option value="number">Número</option>
             <option value="select">Dropdown</option>
             <option value="checkbox">Checkbox</option>
             <option value="multiselect">Multiselect</option>
@@ -1739,19 +2152,46 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
       </section>
 
       <section className="settings-panel">
-        <h2>Base tecnica</h2>
+        <h2>Central de integrações</h2>
+        <p className="panel-note">
+          Aqui ficam as conexões que vão transformar email, LinkedIn, telefone e redes sociais em uma rede neural de oportunidades.
+          No protótipo, os botões mostram o caminho seguro; a conexão real exige OAuth, backend e permissões oficiais.
+        </p>
+        <div className="connector-settings-grid">
+          {connectorSettings.map((connector) => {
+            const Icon = connector.icon;
+            return (
+              <button
+                key={connector.name}
+                className="connector-setting"
+                onClick={() => setConnectorStatus(`${connector.name}: ${connector.body}`)}
+              >
+                <Icon size={18} />
+                <span>
+                  <strong>{connector.name}</strong>
+                  <small>{connector.action}</small>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="integration-note">{connectorStatus}</p>
+      </section>
+
+      <section className="settings-panel">
+        <h2>Base técnica</h2>
         <div className="architecture-list">
-          <Info icon={ShieldCheck} label="Seguranca" value="RLS Supabase planejado no PRD" />
-          <Info icon={Database} label="Persistencia" value="Dados salvos neste navegador; Supabase na etapa de producao" />
+          <Info icon={ShieldCheck} label="Segurança" value="RLS Supabase planejado no PRD" />
+          <Info icon={Database} label="Persistência" value="Dados salvos neste navegador; Supabase na etapa de produção" />
           <Info icon={Network} label="Grafo" value="Adapter visual pronto para evoluir para Sigma.js" />
-          <Info icon={Bot} label="Copiloto" value="Busca estruturada hoje, tools IA na proxima fase" />
+          <Info icon={Bot} label="Copiloto" value="Busca estruturada hoje, tools IA na próxima fase" />
         </div>
       </section>
 
       <section className="settings-panel danger-zone">
         <h2>Conta de teste</h2>
         <p>
-          Sessao atual: <strong>{sessionEmail}</strong>. Como este deploy e demonstrativo, apagar a conta remove somente os dados
+          Sessão atual: <strong>{sessionEmail}</strong>. Como este deploy é demonstrativo, apagar a conta remove somente os dados
           salvos neste navegador.
         </p>
         <button className="danger-button" onClick={resetPrototypeAccount}>

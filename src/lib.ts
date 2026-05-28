@@ -90,6 +90,28 @@ export const searchContacts = (contacts: Contact[], query: string) =>
 export const getAllTags = (contacts: Contact[]) =>
   unique(contacts.flatMap((contact) => contact.tags)).sort((a, b) => a.localeCompare(b));
 
+export const graphFilterGroups = [
+  { label: "Cargos", tags: ["diretor", "diretoria", "decisor", "CEO", "CTO", "CFO", "founder", "head", "investidor", "mentor"] },
+  { label: "Áreas", tags: ["marketing", "finanças", "tecnologia", "jurídico", "operações", "eventos", "segurança", "RH"] },
+  { label: "Negócios", tags: ["B2B", "SaaS", "PME", "startups", "consultoria", "fornecedores", "comunidade"] },
+  { label: "Estratégia", tags: ["parcerias", "fundraising", "contratos recorrentes", "growth", "compliance", "expansão"] },
+  { label: "Pastas", tags: ["Founders e Investidores", "Networking de Eventos", "Empresários Regionais", "investimento", "decisores"] }
+];
+
+export const getGraphFilterTags = (contacts: Contact[], groups: GrafyState["groups"] = []) => {
+  const existing = unique([
+    ...getAllTags(contacts),
+    ...groups.flatMap((group) => [group.name, ...group.tags])
+  ]).map((tag) => ({ tag, normalized: normalize(tag) }));
+  const curated = graphFilterGroups.flatMap((group) => group.tags);
+  const suggested = curated.filter((tag) => existing.some((item) => item.normalized === normalize(tag)));
+  const remaining = existing
+    .map((item) => item.tag)
+    .filter((tag) => !suggested.some((suggestion) => normalize(suggestion) === normalize(tag)))
+    .slice(0, 16);
+  return unique([...suggested, ...remaining]);
+};
+
 export const getMergeSuggestions = (contacts: Contact[]): MergeSuggestion[] => {
   const suggestions: MergeSuggestion[] = [];
   for (let i = 0; i < contacts.length; i += 1) {
@@ -187,12 +209,71 @@ export const parseCsvContacts = (csv: string): Partial<Contact>[] => {
   });
 };
 
-export const buildGraph = (state: GrafyState, query = "", groupId?: string) => {
-  const filteredContacts = searchContacts(
-    groupId ? state.contacts.filter((contact) => contact.groupIds.includes(groupId)) : state.contacts,
-    query
+const contactGraphHaystack = (contact: Contact, groups: GrafyState["groups"]) => {
+  const contactGroups = groups.filter((group) => contact.groupIds.includes(group.id));
+  return normalize(
+    [
+      contactHaystack(contact),
+      contactGroups.map((group) => `${group.name} ${group.tags.join(" ")}`).join(" ")
+    ].join(" ")
   );
-  const contacts = query ? filteredContacts : groupId ? state.contacts.filter((contact) => contact.groupIds.includes(groupId)) : state.contacts;
+};
+
+export const contactMatchesGraphFilters = (contact: Contact, filters: string[], query = "", groups: GrafyState["groups"] = []) => {
+  const haystack = contactGraphHaystack(contact, groups);
+  const normalizedQuery = normalize(query);
+  const queryMatches = !normalizedQuery || scoreContact(contact, query) > 0 || haystack.includes(normalizedQuery);
+  const filtersMatch = filters.every((filter) => haystack.includes(normalize(filter)));
+  return queryMatches && filtersMatch;
+};
+
+const nodeColorByType: Record<GraphNode["type"], string> = {
+  contact: "#66e7ff",
+  public: "#ffd166",
+  tag: "#a993ff",
+  source: "#ff7aa8",
+  ddd: "#60f2d5",
+  group: "#ffffff",
+  demand: "#4da3ff",
+  solution: "#31d17f"
+};
+
+const addPairEdges = (
+  contacts: Contact[],
+  edges: GraphEdge[],
+  key: string,
+  type: string,
+  color: string,
+  weight: number,
+  matchedIds: Set<string>
+) => {
+  const scoped = contacts.slice(0, 7);
+  for (let i = 0; i < scoped.length; i += 1) {
+    for (let j = i + 1; j < scoped.length; j += 1) {
+      const first = scoped[i];
+      const second = scoped[j];
+      edges.push({
+        id: `${type}:${key}:${first.id}:${second.id}`,
+        source: `contact:${first.id}`,
+        target: `contact:${second.id}`,
+        type,
+        weight,
+        color,
+        isDimmed: !matchedIds.has(first.id) || !matchedIds.has(second.id)
+      });
+    }
+  }
+};
+
+export const buildGraph = (state: GrafyState, query = "", groupId?: string, activeFilters: string[] = []) => {
+  const scopedContacts = groupId ? state.contacts.filter((contact) => contact.groupIds.includes(groupId)) : state.contacts;
+  const contacts = scopedContacts;
+  const matchedContactIds = new Set(
+    contacts
+      .filter((contact) => contactMatchesGraphFilters(contact, activeFilters, query, state.groups))
+      .map((contact) => contact.id)
+  );
+  const hasFocus = Boolean(query.trim()) || activeFilters.length > 0;
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const centerX = 480;
@@ -209,7 +290,10 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string) => {
       x: centerX + Math.cos(angle) * contactRadius,
       y: centerY + Math.sin(angle) * contactRadius,
       contactId: contact.id,
-      weight: 12 + contact.tags.length * 2
+      weight: 12 + contact.tags.length * 2,
+      color: contact.isPublic ? nodeColorByType.public : nodeColorByType.contact,
+      isDimmed: hasFocus && !matchedContactIds.has(contact.id),
+      meta: `${contact.headline || contact.source} · DDD ${contact.ddd || "?"}`
     });
   });
 
@@ -223,7 +307,9 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string) => {
       type: "tag",
       x: centerX + Math.cos(angle) * tagRadius,
       y: centerY + Math.sin(angle) * tagRadius,
-      weight: 8
+      weight: 8,
+      color: nodeColorByType.tag,
+      isDimmed: hasFocus && !contacts.some((contact) => contact.tags.includes(tag) && matchedContactIds.has(contact.id))
     });
     contacts
       .filter((contact) => contact.tags.includes(tag))
@@ -233,9 +319,16 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string) => {
           source: `contact:${contact.id}`,
           target: nodeId,
           type: "possui tag",
-          weight: 1
+          weight: 1,
+          color: nodeColorByType.tag,
+          isDimmed: hasFocus && !matchedContactIds.has(contact.id)
         });
       });
+
+    const tagContacts = contacts.filter((contact) => contact.tags.some((item) => normalize(item) === normalize(tag)));
+    if (["marketing", "finanças", "tecnologia", "jurídico", "operações", "diretoria", "decisor", "CEO", "CTO", "B2B", "PME"].some((focusTag) => normalize(focusTag) === normalize(tag))) {
+      addPairEdges(tagContacts, edges, tag, "afinidade de tag", "#7dc7ff", 0.45, matchedContactIds);
+    }
   });
 
   const ddds = unique(contacts.map((contact) => contact.ddd).filter(Boolean)).slice(0, 8);
@@ -247,12 +340,22 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string) => {
       type: "ddd",
       x: 120,
       y: 90 + index * 70,
-      weight: 7
+      weight: 7,
+      color: nodeColorByType.ddd,
+      isDimmed: hasFocus && !contacts.some((contact) => contact.ddd === ddd && matchedContactIds.has(contact.id))
     });
     contacts
       .filter((contact) => contact.ddd === ddd)
       .forEach((contact) => {
-        edges.push({ id: `${contact.id}-ddd-${ddd}`, source: `contact:${contact.id}`, target: nodeId, type: "tem DDD", weight: 1 });
+          edges.push({
+            id: `${contact.id}-ddd-${ddd}`,
+            source: `contact:${contact.id}`,
+            target: nodeId,
+            type: "tem DDD",
+            weight: 1,
+            color: nodeColorByType.ddd,
+            isDimmed: hasFocus && !matchedContactIds.has(contact.id)
+          });
       });
   });
 
@@ -265,7 +368,9 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string) => {
       type: "source",
       x: 840,
       y: 112 + index * 76,
-      weight: 7
+      weight: 7,
+      color: nodeColorByType.source,
+      isDimmed: hasFocus && !contacts.some((contact) => contact.source === source && matchedContactIds.has(contact.id))
     });
     contacts
       .filter((contact) => contact.source === source)
@@ -275,7 +380,9 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string) => {
           source: `contact:${contact.id}`,
           target: nodeId,
           type: "importado de",
-          weight: 1
+          weight: 1,
+          color: nodeColorByType.source,
+          isDimmed: hasFocus && !matchedContactIds.has(contact.id)
         });
       });
   });
@@ -290,13 +397,33 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string) => {
         type: "group",
         x: 220 + index * 230,
         y: 580,
-        weight: 9
+        weight: 9,
+        color: group.color || nodeColorByType.group,
+        isDimmed: hasFocus && !group.contactIds.some((contactId) => matchedContactIds.has(contactId))
       });
       group.contactIds
         .filter((contactId) => contacts.some((contact) => contact.id === contactId))
         .forEach((contactId) => {
-          edges.push({ id: `${contactId}-${group.id}`, source: `contact:${contactId}`, target: nodeId, type: "pertence ao grupo", weight: 2 });
+          edges.push({
+            id: `${contactId}-${group.id}`,
+            source: `contact:${contactId}`,
+            target: nodeId,
+            type: "pasta estratégica",
+            weight: 2,
+            color: group.color || nodeColorByType.group,
+            isDimmed: hasFocus && !matchedContactIds.has(contactId)
+          });
         });
+
+      addPairEdges(
+        contacts.filter((contact) => group.contactIds.includes(contact.id)),
+        edges,
+        group.id,
+        "mesma pasta",
+        group.color || "#ffffff",
+        0.5,
+        matchedContactIds
+      );
     });
 
   buildOpportunityMatches(contacts).slice(0, 5).forEach((match) => {
@@ -305,11 +432,13 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string) => {
       source: `contact:${match.seeker.id}`,
       target: `contact:${match.solver.id}`,
       type: "potencial match",
-      weight: 3
+      weight: 3,
+      color: "#ffd166",
+      isDimmed: hasFocus && (!matchedContactIds.has(match.seeker.id) || !matchedContactIds.has(match.solver.id))
     });
   });
 
-  return { nodes, edges };
+  return { nodes, edges, matchedContactIds, hasFocus };
 };
 
 export const makeAssistantAnswer = (prompt: string, state: GrafyState) => {
@@ -320,8 +449,8 @@ export const makeAssistantAnswer = (prompt: string, state: GrafyState) => {
     return {
       content:
         suggestions.length > 0
-          ? `Encontrei ${suggestions.length} possivel duplicado. O caso mais forte e ${suggestions[0].contactA.name} com ${suggestions[0].contactB.name}, por ${suggestions[0].reason}.`
-          : "Nao encontrei duplicados por email ou telefone normalizado.",
+          ? `Encontrei ${suggestions.length} possível duplicado. O caso mais forte é ${suggestions[0].contactA.name} com ${suggestions[0].contactB.name}, por ${suggestions[0].reason}.`
+          : "Não encontrei duplicados por email ou telefone normalizado.",
       resultContactIds: suggestions.flatMap((suggestion) => [suggestion.contactA.id, suggestion.contactB.id])
     };
   }
@@ -330,8 +459,8 @@ export const makeAssistantAnswer = (prompt: string, state: GrafyState) => {
     const matches = buildOpportunityMatches(state.contacts);
     return {
       content: matches.length
-        ? `Achei ${matches.length} oportunidades de complementaridade. A melhor sugestao e conectar ${matches[0].seeker.name} com ${matches[0].solver.name}. Motivo: ${matches[0].reason || "demanda e solucao proximas"}.`
-        : "Ainda nao encontrei complementaridades fortes. Complete demandas e problemas resolvidos para melhorar os matches.",
+        ? `Achei ${matches.length} oportunidades de complementaridade. A melhor sugestão é conectar ${matches[0].seeker.name} com ${matches[0].solver.name}. Motivo: ${matches[0].reason || "demanda e solução próximas"}.`
+        : "Ainda não encontrei complementaridades fortes. Complete demandas e problemas resolvidos para melhorar os matches.",
       resultContactIds: matches.flatMap((match) => [match.seeker.id, match.solver.id])
     };
   }
@@ -341,7 +470,7 @@ export const makeAssistantAnswer = (prompt: string, state: GrafyState) => {
     const ddd = dddMatch[1];
     const contacts = state.contacts.filter((contact) => contact.ddd === ddd);
     return {
-      content: contacts.length ? `Encontrei ${contacts.length} contato(s) com DDD ${ddd}.` : `Nao encontrei contatos com DDD ${ddd}.`,
+      content: contacts.length ? `Encontrei ${contacts.length} contato(s) com DDD ${ddd}.` : `Não encontrei contatos com DDD ${ddd}.`,
       resultContactIds: contacts.map((contact) => contact.id)
     };
   }
@@ -350,13 +479,13 @@ export const makeAssistantAnswer = (prompt: string, state: GrafyState) => {
   const intent = normalized.includes("busca") || normalized.includes("demanda") || normalized.includes("procur")
     ? "demanda"
     : normalized.includes("resolve") || normalized.includes("presta") || normalized.includes("servico") || normalized.includes("ajuda")
-      ? "solucao"
+      ? "solução"
       : "busca";
   const content = contacts.length
     ? `Encontrei ${contacts.length} resultado(s) por ${intent}. Destaques: ${contacts
         .slice(0, 3)
         .map((contact) => contact.name)
         .join(", ")}.`
-    : "Nao encontrei resultados fortes. Tente usar uma tag, DDD, demanda ou problema resolvido.";
+    : "Não encontrei resultados fortes. Tente usar uma tag, DDD, demanda ou problema resolvido.";
   return { content, resultContactIds: contacts.map((contact) => contact.id) };
 };

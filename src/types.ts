@@ -38,7 +38,7 @@ export interface Contact {
   phones: string[];
   emails: string[];
   ddd?: string;
-  source: "Manual" | "CSV" | "Google Contacts" | "Rede Publica" | "Grupo";
+  source: "Manual" | "CSV" | "Google Contacts" | "Rede Pública" | "Grupo";
   currentDemand: string;
   problemSolves: string;
   notes: string;
@@ -58,6 +58,7 @@ export interface Group {
   name: string;
   description: string;
   role: "admin" | "member" | "viewer";
+  color: string;
   members: string[];
   contactIds: string[];
   tags: string[];
@@ -97,6 +98,7 @@ export interface ChatMessage {
 }
 
 export interface GrafyState {
+  schemaVersion?: string;
   profile: UserProfile;
   contacts: Contact[];
   groups: Group[];
@@ -121,6 +123,9 @@ export interface GraphNode {
   y: number;
   contactId?: string;
   weight: number;
+  color?: string;
+  isDimmed?: boolean;
+  meta?: string;
 }
 
 export interface GraphEdge {
@@ -129,4 +134,6 @@ export interface GraphEdge {
   target: string;
   type: string;
   weight: number;
+  isDimmed?: boolean;
+  color?: string;
 }

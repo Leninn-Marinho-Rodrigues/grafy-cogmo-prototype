@@ -258,10 +258,15 @@ label {
 }
 
 .workspace {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
   padding: 28px;
 }
 
 .screen {
+  width: 100%;
+  min-width: 0;
   max-width: 1480px;
   margin: 0 auto;
 }
@@ -1408,6 +1413,7 @@ label {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
 }
 
 .tag-cloud.compact {
@@ -1426,6 +1432,15 @@ label {
   font-size: 12px;
   font-weight: 800;
   padding: 6px 9px;
+}
+
+.tag-chip {
+  max-width: 100%;
+  background:
+    linear-gradient(135deg, rgba(102, 231, 255, 0.12), rgba(169, 147, 255, 0.08)),
+    rgba(255, 255, 255, 0.055);
+  border-color: rgba(102, 231, 255, 0.16);
+  line-height: 1;
 }
 
 .context {
@@ -1773,6 +1788,54 @@ label {
   gap: 14px;
 }
 
+.integration-map {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 16px;
+  align-items: center;
+  border: 1px solid rgba(102, 231, 255, 0.16);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at 20% 20%, rgba(102, 231, 255, 0.12), transparent 32%),
+    rgba(255, 255, 255, 0.045);
+  padding: 18px;
+}
+
+.integration-map h3 {
+  margin: 0 0 8px;
+}
+
+.integration-map p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.integration-roadmap {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.integration-roadmap div {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 12px;
+}
+
+.integration-roadmap span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 8px;
+  border-radius: 50%;
+  background: rgba(102, 231, 255, 0.13);
+  color: var(--cyan);
+  font-weight: 900;
+}
+
 .connector-card,
 .workflow-panel {
   border: 1px solid var(--line);
@@ -1790,8 +1853,7 @@ label {
 
 .connector-card header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
 }
 
@@ -1827,6 +1889,42 @@ label {
   color: var(--text);
   font-size: 12px;
   text-transform: uppercase;
+}
+
+.connector-lanes {
+  display: grid;
+  gap: 12px;
+  margin: 2px 0;
+}
+
+.connector-lane {
+  display: grid;
+  gap: 8px;
+}
+
+.connector-lane strong {
+  color: #f3f8ff;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.connector-lane div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.connector-lane span {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #dbe9f5;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .status-pill.attention {
@@ -1893,6 +1991,51 @@ label {
   max-width: 240px;
 }
 
+.graph-filter-panel {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  border: 1px solid rgba(102, 231, 255, 0.16);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.045);
+  padding: 14px;
+}
+
+.graph-filter-panel > div:first-child strong,
+.graph-filter-panel > div:first-child span {
+  display: block;
+}
+
+.graph-filter-panel > div:first-child span {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.graph-filter-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.filter-family {
+  display: grid;
+  gap: 6px;
+}
+
+.filter-family small {
+  color: var(--soft);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.filter-family div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
 .graph-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -1923,20 +2066,34 @@ label {
   width: 100%;
   height: 100%;
   min-height: 650px;
+  cursor: grab;
+  touch-action: none;
 }
 
 .graph-edge {
-  stroke: rgba(255, 255, 255, 0.18);
+  stroke: var(--edge-color, rgba(255, 255, 255, 0.18));
   stroke-width: 1.2;
   stroke-dasharray: 8 12;
+  opacity: 0.46;
   animation: graph-edge-flow 5.5s linear infinite;
 }
 
 .graph-edge.match {
-  stroke: rgba(255, 209, 102, 0.5);
+  stroke: var(--edge-color, rgba(255, 209, 102, 0.5));
   stroke-width: 2.2;
   stroke-dasharray: 12 10;
   animation-duration: 3.8s;
+}
+
+.graph-edge.affinity {
+  stroke-width: 0.9;
+  stroke-dasharray: 4 14;
+  opacity: 0.26;
+}
+
+.graph-edge.dimmed,
+.graph-node.dimmed {
+  opacity: 0.08;
 }
 
 .graph-node {
@@ -1949,25 +2106,38 @@ label {
 .graph-node circle {
   stroke: rgba(255, 255, 255, 0.32);
   stroke-width: 1.4;
+  fill: var(--node-color, #66e7ff);
   filter: drop-shadow(0 0 11px rgba(102, 231, 255, 0.28));
 }
 
 .graph-node text {
   fill: #e8f8ff;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   text-anchor: middle;
+  dominant-baseline: middle;
   paint-order: stroke;
   stroke: rgba(7, 17, 31, 0.86);
   stroke-width: 4px;
+  pointer-events: none;
 }
 
-.graph-node.contact circle { fill: #66e7ff; }
-.graph-node.public circle { fill: #ffd166; }
-.graph-node.tag circle { fill: #a993ff; }
-.graph-node.source circle { fill: #ff7aa8; }
-.graph-node.ddd circle { fill: #60f2d5; }
-.graph-node.group circle { fill: #ffffff; }
+.graph-node-title {
+  letter-spacing: 0;
+}
+
+.graph-node-meta {
+  fill: rgba(232, 248, 255, 0.8);
+  font-size: 7px;
+  font-weight: 700;
+  stroke-width: 3px;
+}
+
+.graph-node.contact circle,
+.graph-node.public circle {
+  stroke-width: 2;
+  filter: drop-shadow(0 0 18px color-mix(in srgb, var(--node-color, #66e7ff) 55%, transparent));
+}
 
 @keyframes graph-edge-flow {
   to {
@@ -2024,6 +2194,15 @@ label {
 .dot.tag { background: var(--violet); }
 .dot.public { background: var(--amber); }
 .dot.group { background: #fff; }
+.dot.affinity { background: #7dc7ff; }
+
+.inspector-meta {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.055);
+  padding: 10px;
+  font-size: 12px;
+}
 
 .groups-screen {
   display: grid;
@@ -2032,12 +2211,22 @@ label {
 
 .group-create {
   display: grid;
-  grid-template-columns: 260px 1fr 1fr auto;
+  grid-template-columns: minmax(260px, 0.72fr) repeat(3, minmax(150px, 1fr)) minmax(168px, auto);
+  grid-template-areas:
+    "intro name description tags colors"
+    "intro create create create colors";
   align-items: center;
   gap: 12px;
 }
 
-.group-grid,
+.group-create > div:first-child { grid-area: intro; }
+.group-create > input:nth-of-type(1) { grid-area: name; }
+.group-create > input:nth-of-type(2) { grid-area: description; }
+.group-create > input:nth-of-type(3) { grid-area: tags; }
+.group-create > .color-picker-row { grid-area: colors; justify-content: flex-end; }
+.group-create > .primary-button { grid-area: create; justify-self: start; min-width: 220px; }
+
+.group-board,
 .public-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2046,7 +2235,25 @@ label {
 
 .group-card,
 .public-card {
+  min-width: 0;
   padding: 18px;
+}
+
+.kanban-column {
+  border-color: color-mix(in srgb, var(--group-color, #66e7ff) 42%, var(--line));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--group-color, #66e7ff) 12%, transparent), transparent 38%),
+    var(--surface);
+}
+
+.kanban-column::before {
+  content: "";
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  margin-bottom: 14px;
+  background: var(--group-color, #66e7ff);
+  box-shadow: 0 0 24px color-mix(in srgb, var(--group-color, #66e7ff) 45%, transparent);
 }
 
 .group-card-head {
@@ -2072,6 +2279,60 @@ label {
   margin-top: 14px;
 }
 
+.group-contact-list button {
+  min-height: 54px;
+}
+
+.group-contact-list button span:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.group-contact-list small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.group-controls {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.group-controls label {
+  font-size: 11px;
+  color: var(--soft);
+  text-transform: uppercase;
+  font-weight: 900;
+}
+
+.group-add-contact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.color-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.color-dot {
+  width: 24px;
+  height: 24px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--group-color);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--group-color) 35%, transparent);
+}
+
+.color-dot.active {
+  border-color: #fff;
+}
+
 .public-hero {
   display: flex;
   justify-content: space-between;
@@ -2084,6 +2345,18 @@ label {
   background: linear-gradient(135deg, rgba(255, 209, 102, 0.1), rgba(102, 231, 255, 0.06));
 }
 
+.public-stats {
+  display: grid;
+  gap: 10px;
+  min-width: min(420px, 100%);
+}
+
+.network-filter-strip {
+  flex-wrap: wrap;
+  overflow: visible;
+  margin-bottom: 14px;
+}
+
 .public-card {
   display: grid;
   gap: 10px;
@@ -2091,6 +2364,19 @@ label {
 
 .public-card.self {
   border-color: rgba(96, 242, 213, 0.32);
+}
+
+.network-reason {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  border: 1px solid rgba(102, 231, 255, 0.16);
+  border-radius: var(--radius);
+  background: rgba(102, 231, 255, 0.07);
+  color: #cfeaf5;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .chat-screen {
@@ -2158,6 +2444,36 @@ label {
   padding: 8px 10px;
 }
 
+.rich-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chat-result-card {
+  align-items: flex-start;
+  min-height: 118px;
+}
+
+.chat-result-card > span:last-child {
+  display: grid;
+  gap: 5px;
+}
+
+.chat-result-card small,
+.chat-result-card em,
+.chat-result-card b {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.chat-result-card b {
+  color: #dcecff;
+  font-weight: 800;
+}
+
 .chat-input {
   display: flex;
   gap: 10px;
@@ -2167,7 +2483,12 @@ label {
 
 .profile-screen {
   display: grid;
-  grid-template-columns: 0.8fr 1.2fr;
+  gap: 18px;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
 }
 
@@ -2204,32 +2525,71 @@ label {
 }
 
 .toggle {
-  width: 56px;
-  height: 32px;
+  flex: 0 0 auto;
+  width: 68px;
+  height: 38px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
-  padding: 3px;
+  padding: 4px;
 }
 
 .toggle span {
   display: block;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: var(--muted);
   transition: transform 0.2s ease, background 0.2s ease;
 }
 
 .toggle.active span {
-  transform: translateX(22px);
+  transform: translateX(28px);
   background: var(--green);
+}
+
+.panel-note {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.connector-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.connector-setting {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--text);
+  padding: 12px;
+  text-align: left;
+}
+
+.connector-setting small,
+.connector-setting strong {
+  display: block;
+}
+
+.connector-setting small {
+  margin-top: 4px;
+  color: var(--muted);
 }
 
 .inline-form {
   display: grid;
-  grid-template-columns: 1fr 220px auto;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.8fr);
   gap: 10px;
+}
+
+.inline-form .primary-button {
+  grid-column: 1 / -1;
 }
 
 .empty-state {
@@ -2407,7 +2767,7 @@ label {
   }
 
   .metric-grid,
-  .group-grid,
+  .group-board,
   .public-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2416,8 +2776,39 @@ label {
   .inline-form,
   .linkedin-list,
   .landing-card-grid,
-  .connector-grid {
+  .connector-grid,
+  .integration-map,
+  .graph-filter-panel,
+  .profile-grid,
+  .connector-settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .group-create {
+    grid-template-areas: none;
+  }
+
+  .group-create > div:first-child,
+  .group-create > input:nth-of-type(1),
+  .group-create > input:nth-of-type(2),
+  .group-create > input:nth-of-type(3),
+  .group-create > .color-picker-row,
+  .group-create > .primary-button {
+    grid-area: auto;
+    justify-self: stretch;
+  }
+
+  .integration-roadmap,
+  .rich-results {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .graph-filter-panel {
+    gap: 12px;
+  }
+
+  .public-hero {
+    display: grid;
   }
 
   .landing-feature-card {
@@ -2511,8 +2902,15 @@ label {
   }
 
   .metric-grid,
-  .group-grid,
+  .group-board,
   .public-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .integration-roadmap,
+  .connector-lane div,
+  .rich-results,
+  .connector-settings-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2526,8 +2924,6 @@ label {
 
   .graph-canvas svg {
     min-height: 560px;
-    transform: scale(1.28);
-    transform-origin: center;
   }
 
   .chat-input {
