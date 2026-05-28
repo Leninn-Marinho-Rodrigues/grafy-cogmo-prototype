@@ -15,6 +15,16 @@ Abra:
 http://127.0.0.1:5173/
 ```
 
+## Deploy publico
+
+URL para apresentacao e testes:
+
+```text
+https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/
+```
+
+Este deploy e demonstrativo. Cada pessoa pode usar o proprio email na tela inicial para criar/entrar em um workspace salvo no navegador dela. A opcao **Ajustes -> Apagar conta de teste** limpa os dados locais daquela pessoa. Login real compartilhado com Supabase/Google entra na proxima fase.
+
 ## O que ja funciona
 
 - Login demonstrativo com sessao local.
