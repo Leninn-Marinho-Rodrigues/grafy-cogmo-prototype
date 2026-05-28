@@ -2604,11 +2604,11 @@ label {
 }
 
 .toggle-row strong,
-.toggle-row span {
+.toggle-row > div > span {
   display: block;
 }
 
-.toggle-row span {
+.toggle-row > div > span {
   color: var(--muted);
   font-size: 13px;
   margin-top: 4px;
@@ -2616,6 +2616,8 @@ label {
 
 .toggle {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
   width: 68px;
   height: 38px;
   border: 1px solid var(--line);
@@ -2626,8 +2628,10 @@ label {
 
 .toggle span {
   display: block;
+  flex: 0 0 28px;
   width: 28px;
   height: 28px;
+  margin: 0;
   border-radius: 50%;
   background: var(--muted);
   transition: transform 0.2s ease, background 0.2s ease;
