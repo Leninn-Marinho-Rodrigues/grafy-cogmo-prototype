@@ -89,11 +89,16 @@ const linkLabels: Record<LinkKind, string> = {
 
 const mobileNavOrder: ViewKey[] = ["dashboard", "contacts", "graph", "import", "integrations", "chat"];
 const groupColorOptions = ["#66e7ff", "#a993ff", "#ffd166", "#60f2d5", "#ff7aa8", "#31d17f"];
-type LandingMode = "personal" | "hub";
+type AudienceMode = "personal" | "hub";
+type LandingMode = "choice" | AudienceMode;
 type AuthLoginHandler = (email: string, importedContacts?: Contact[], targetView?: ViewKey) => void;
 
-const getLandingModeFromHash = (): LandingMode =>
-  window.location.hash.toLowerCase().includes("hubs") ? "hub" : "personal";
+const getLandingModeFromHash = (): LandingMode => {
+  const hash = window.location.hash.toLowerCase();
+  if (hash.includes("hubs")) return "hub";
+  if (hash.includes("empresarios")) return "personal";
+  return "choice";
+};
 
 type GoogleTokenResponse = {
   access_token?: string;
@@ -880,7 +885,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
       match: "Camila organiza o hub. Rodrigo cria encontros executivos.",
       demand: "3 grupos demonstram curadoria para eventos e comunidades."
     }
-  } satisfies Record<LandingMode, {
+  } satisfies Record<AudienceMode, {
     navLabel: string;
     hash: string;
     headlineA: string;
@@ -893,8 +898,9 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
     match: string;
     demand: string;
   }>;
-  const activeCopy = landingCopy[landingMode];
-  const SpecificLandingPage = landingMode === "personal" ? PersonalLandingPage : HubLandingPage;
+  const audienceMode: AudienceMode = landingMode === "choice" ? "personal" : landingMode;
+  const activeCopy = landingCopy[audienceMode];
+  const SpecificLandingPage = audienceMode === "personal" ? PersonalLandingPage : HubLandingPage;
 
   useEffect(() => {
     const handleHashChange = () => setLandingMode(getLandingModeFromHash());
@@ -904,7 +910,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 
   const changeLandingMode = (mode: LandingMode) => {
     setLandingMode(mode);
-    window.history.replaceState(null, "", landingCopy[mode].hash);
+    window.history.replaceState(null, "", mode === "choice" ? "#/" : landingCopy[mode].hash);
   };
 
   const submit = (event: FormEvent) => {
@@ -1011,9 +1017,9 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 
   return (
     <div className={`auth-page auth-page-${landingMode}`}>
-      <NetworkBackdrop className="auth-live-network" density={96} />
+      <NetworkBackdrop className="auth-live-network" density={landingMode === "choice" ? 82 : 62} />
       <header className="auth-topbar">
-        <button className="brand horizontal" aria-label="Grafy">
+        <button className="brand horizontal" aria-label="Grafy" onClick={() => changeLandingMode("choice")}>
           <span className="brand-mark">
             <Network size={22} />
           </span>
@@ -1023,411 +1029,338 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
           </span>
         </button>
         <div className="auth-topbar-actions">
-          <div className="landing-mode-tabs" aria-label="Escolha a landing do Grafy">
-            {(Object.keys(landingCopy) as LandingMode[]).map((mode) => (
-              <button
-                key={mode}
-                className={landingMode === mode ? "active" : ""}
-                onClick={() => changeLandingMode(mode)}
-              >
-                {landingCopy[mode].navLabel}
-              </button>
-            ))}
-          </div>
           <span>Privado por padrão</span>
           <span>Google Contacts + Apple vCard</span>
           <span>PWA mobile-first</span>
         </div>
       </header>
 
-      <motion.section
-        className="auth-hero auth-hero-grid"
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.7, ease: "easeOut" }}
-      >
-        <div className="auth-copy">
-          <h1>
-            <span>{activeCopy.headlineA}</span>
-            <span className="gradient-text">{activeCopy.headlineB}</span>
-          </h1>
-          <p>{activeCopy.body}</p>
-          <div className="auth-proof">
-            <span><Lock size={15} /> {activeCopy.proof[0]}</span>
-            <span><Network size={15} /> {activeCopy.proof[1]}</span>
-            <span><Sparkles size={15} /> {activeCopy.proof[2]}</span>
-          </div>
-          <div className="auth-value-grid">
-            {activeCopy.cards.map((card) => (
-              <Info key={card.label} icon={card.icon} label={card.label} value={card.value} />
-            ))}
-          </div>
-        </div>
-
-        <div className="auth-product-column">
-          <motion.div
-            className="product-preview"
-            initial={{ opacity: 0, x: 28 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.8, delay: 0.15, ease: "easeOut" }}
+      {landingMode === "choice" ? (
+        <LandingChoicePage onChoose={changeLandingMode} />
+      ) : (
+        <>
+          <motion.section
+            className={`auth-hero audience-hero audience-hero-${audienceMode}`}
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: "easeOut" }}
           >
-            <div className="preview-header">
-              <span className="status-dot live" />
-              <div>
-                <strong>{activeCopy.previewTitle}</strong>
-                <small>{activeCopy.previewSubtitle}</small>
+            <div className="auth-copy audience-copy">
+              <h1>
+                <span>{activeCopy.headlineA}</span>
+                <span className="gradient-text">{activeCopy.headlineB}</span>
+              </h1>
+              <p>{activeCopy.body}</p>
+              <div className="auth-proof">
+                <span><Lock size={15} /> {activeCopy.proof[0]}</span>
+                <span><Network size={15} /> {activeCopy.proof[1]}</span>
+                <span><Sparkles size={15} /> {activeCopy.proof[2]}</span>
+              </div>
+              <div className="auth-value-grid">
+                {activeCopy.cards.map((card) => (
+                  <Info key={card.label} icon={card.icon} label={card.label} value={card.value} />
+                ))}
               </div>
             </div>
-            <div className="preview-network">
-              <NetworkBackdrop density={34} interactive={false} />
-              <div className="preview-node main">LR</div>
-              <div className="preview-node n1">CTO</div>
-              <div className="preview-node n2">MKT</div>
-              <div className="preview-node n3">PME</div>
-              <div className="preview-node n4">IA</div>
-            </div>
-            <div className="preview-insights">
-              <div>
-                <span>Match sugerido</span>
-                <strong>{activeCopy.match}</strong>
-              </div>
-              <div>
-                <span>Demanda recente</span>
-                <strong>{activeCopy.demand}</strong>
-              </div>
-            </div>
-          </motion.div>
 
-          <form className="auth-card" onSubmit={submit}>
-            <div className="auth-card-head">
-              <div>
-                <h2>Monte sua rede no primeiro acesso</h2>
-                <p>Conecte Google para importar contatos e agenda, ou carregue arquivos Apple antes de abrir o workspace.</p>
-              </div>
-              <span className="status-dot live" />
-            </div>
-            <button className="google-button connector-first-button" type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
-              <Globe2 size={18} />
-              {googleImporting ? "Conectando Google..." : "Conectar Google e criar workspace"}
-              <small>{googleClientConfigured ? "OAuth real" : "demo sem Client ID"}</small>
-            </button>
-            <div className="apple-onboarding">
-              <div className="onboarding-source-card">
-                <strong>Apple Contacts</strong>
-                <small>Carregue o `.vcf` exportado do iCloud/Contatos.</small>
-                <input
-                  className="file-input"
-                  type="file"
-                  accept=".vcf,text/vcard,text/x-vcard"
-                  onChange={(event) => handleTextFile(event, setAppleVcardText, "vCard Apple")}
-                />
-              </div>
-              <div className="onboarding-source-card">
-                <strong>Apple Agenda</strong>
-                <small>Carregue `.ics` para transformar participantes em contexto.</small>
-                <input
-                  className="file-input"
-                  type="file"
-                  accept=".ics,text/calendar"
-                  onChange={(event) => handleTextFile(event, setAppleIcsText, "Agenda Apple")}
-                />
-              </div>
-            </div>
-            <div className="onboarding-preview-row">
-              <span>{applePreviewCount ? `${applePreviewCount} contato(s) Apple prontos` : "Apple no web usa arquivos .vcf/.ics"}</span>
-              <button className="secondary-button compact" type="button" onClick={handleAppleLogin} disabled={!applePreviewCount}>
-                <Upload size={16} />
-                Entrar importando Apple
-              </button>
-              <button className="secondary-button compact" type="button" onClick={handleAppleSampleLogin}>
-                <CalendarClock size={16} />
-                Usar amostra Apple
-              </button>
-            </div>
-            <div className="auth-divider"><span>identificação do workspace</span></div>
-            <label>
-              Email do usuário
-              <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="voce@empresa.com" />
-            </label>
-            <button className="primary-button" type="submit">
-              <KeyRound size={18} />
-              Entrar sem importar agora
-            </button>
-            <button className="secondary-button" type="button" onClick={() => onLogin(email || "usuario@grafy.local", stampedTemplateContacts(googlePreviewContactTemplates), "dashboard")}>
-              <Mail size={18} />
-              Entrar com dados de demonstração
-            </button>
-            <p className="prototype-note">
-              Ambiente demonstrativo: dados ficam neste navegador. Em produção, tokens Google ficam no backend e Apple direto exige app nativo.
-            </p>
-            {status && <p className="auth-status">{status}</p>}
-          </form>
-        </div>
-      </motion.section>
+            <div className="auth-product-column audience-product-column">
+              <motion.div
+                className="product-preview"
+                initial={{ opacity: 0, x: 28 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.8, delay: 0.15, ease: "easeOut" }}
+              >
+                <div className="preview-header">
+                  <span className="status-dot live" />
+                  <div>
+                    <strong>{activeCopy.previewTitle}</strong>
+                    <small>{activeCopy.previewSubtitle}</small>
+                  </div>
+                </div>
+                <div className="preview-network">
+                  <NetworkBackdrop density={28} interactive={false} />
+                  <div className="preview-node main">LR</div>
+                  <div className="preview-node n1">CTO</div>
+                  <div className="preview-node n2">MKT</div>
+                  <div className="preview-node n3">PME</div>
+                  <div className="preview-node n4">IA</div>
+                </div>
+                <div className="preview-insights">
+                  <div>
+                    <span>Match sugerido</span>
+                    <strong>{activeCopy.match}</strong>
+                  </div>
+                  <div>
+                    <span>Demanda recente</span>
+                    <strong>{activeCopy.demand}</strong>
+                  </div>
+                </div>
+              </motion.div>
 
-      <SpecificLandingPage onModeChange={changeLandingMode} onLogin={() => onLogin(email || "usuario@grafy.local", [], "dashboard")} />
+              <form className="auth-card" onSubmit={submit}>
+                <div className="auth-card-head">
+                  <div>
+                    <h2>Monte sua rede no primeiro acesso</h2>
+                    <p>Conecte Google para importar contatos e agenda, ou carregue arquivos Apple antes de abrir o workspace.</p>
+                  </div>
+                  <span className="status-dot live" />
+                </div>
+                <button className="google-button connector-first-button" type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
+                  <Globe2 size={18} />
+                  {googleImporting ? "Conectando Google..." : "Conectar Google e criar workspace"}
+                  <small>{googleClientConfigured ? "OAuth real" : "demo sem Client ID"}</small>
+                </button>
+                <div className="apple-onboarding">
+                  <div className="onboarding-source-card">
+                    <strong>Apple Contacts</strong>
+                    <small>Carregue o `.vcf` exportado do iCloud/Contatos.</small>
+                    <input
+                      className="file-input"
+                      type="file"
+                      accept=".vcf,text/vcard,text/x-vcard"
+                      onChange={(event) => handleTextFile(event, setAppleVcardText, "vCard Apple")}
+                    />
+                  </div>
+                  <div className="onboarding-source-card">
+                    <strong>Apple Agenda</strong>
+                    <small>Carregue `.ics` para transformar participantes em contexto.</small>
+                    <input
+                      className="file-input"
+                      type="file"
+                      accept=".ics,text/calendar"
+                      onChange={(event) => handleTextFile(event, setAppleIcsText, "Agenda Apple")}
+                    />
+                  </div>
+                </div>
+                <div className="onboarding-preview-row">
+                  <span>{applePreviewCount ? `${applePreviewCount} contato(s) Apple prontos` : "Apple no web usa arquivos .vcf/.ics"}</span>
+                  <button className="secondary-button compact" type="button" onClick={handleAppleLogin} disabled={!applePreviewCount}>
+                    <Upload size={16} />
+                    Entrar importando Apple
+                  </button>
+                  <button className="secondary-button compact" type="button" onClick={handleAppleSampleLogin}>
+                    <CalendarClock size={16} />
+                    Usar amostra Apple
+                  </button>
+                </div>
+                <div className="auth-divider"><span>identificação do workspace</span></div>
+                <label>
+                  Email do usuário
+                  <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="voce@empresa.com" />
+                </label>
+                <button className="primary-button" type="submit">
+                  <KeyRound size={18} />
+                  Entrar sem importar agora
+                </button>
+                <button className="secondary-button" type="button" onClick={() => onLogin(email || "usuario@grafy.local", stampedTemplateContacts(googlePreviewContactTemplates), "dashboard")}>
+                  <Mail size={18} />
+                  Entrar com dados de demonstração
+                </button>
+                <p className="prototype-note">
+                  Ambiente demonstrativo: dados ficam neste navegador. Em produção, tokens Google ficam no backend e Apple direto exige app nativo.
+                </p>
+                {status && <p className="auth-status">{status}</p>}
+              </form>
+            </div>
+          </motion.section>
+
+          <SpecificLandingPage onModeChange={changeLandingMode} onLogin={() => onLogin(email || "usuario@grafy.local", [], "dashboard")} />
+        </>
+      )}
     </div>
+  );
+}
+
+function LandingChoicePage({ onChoose }: { onChoose: (mode: LandingMode) => void }) {
+  const choices = [
+    {
+      mode: "personal" as const,
+      icon: ContactRound,
+      label: "Empresário",
+      title: "Organizar minha rede privada",
+      body: "Para puxar contatos próprios, descobrir clientes potenciais, fornecedores, parceiros e decisores.",
+      points: ["Google Contacts", "Apple vCard/.ics", "Grafo privado"]
+    },
+    {
+      mode: "hub" as const,
+      icon: Users,
+      label: "Hub, evento ou empresa",
+      title: "Conectar uma comunidade",
+      body: "Para administrar participantes, membros ou bases compartilhadas e gerar encontros úteis.",
+      points: ["Base compartilhada", "Grupos", "Curadoria"]
+    }
+  ];
+
+  return (
+    <motion.section
+      className="choice-landing"
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.7, ease: "easeOut" }}
+    >
+      <div className="choice-copy">
+        <span className="context private">primeiro passo</span>
+        <h1>
+          Qual é o seu <span className="gradient-text">tipo de negócio?</span>
+        </h1>
+        <p>
+          O Grafy muda a experiência de acordo com o uso: rede privada para empresários ou base compartilhada para hubs,
+          eventos e empresas.
+        </p>
+      </div>
+
+      <div className="choice-card-grid" aria-label="Escolha seu tipo de negócio">
+        {choices.map((choice, index) => {
+          const Icon = choice.icon;
+          return (
+            <motion.button
+              key={choice.mode}
+              className={`choice-card choice-card-${choice.mode} spotlight-card`}
+              onClick={() => onChoose(choice.mode)}
+              animate={{ y: [0, index === 0 ? -10 : 10, 0] }}
+              transition={{ duration: 7 + index, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <span className="choice-icon"><Icon size={25} /></span>
+              <small>{choice.label}</small>
+              <strong>{choice.title}</strong>
+              <p>{choice.body}</p>
+              <div className="connector-data-list">
+                {choice.points.map((point) => <i key={point}>{point}</i>)}
+              </div>
+              <em>Escolher caminho</em>
+            </motion.button>
+          );
+        })}
+      </div>
+    </motion.section>
   );
 }
 
 function PersonalLandingPage({ onLogin, onModeChange }: { onLogin: () => void; onModeChange: (mode: LandingMode) => void }) {
   return (
-    <>
-      <LandingSections mode="personal" onLogin={onLogin} onModeChange={onModeChange} />
-      <section className="audience-page-section personal">
-        <div>
-          <span className="context public">Página 1 · Empresário</span>
-          <h2>Para organizar contatos próprios e encontrar oportunidades reais.</h2>
-          <p>
-            O usuário conecta Google ou importa Apple/CSV, revisa a base e passa a enxergar clientes potenciais,
-            fornecedores, parceiros, decisores por DDD e pessoas que resolvem problemas específicos.
-          </p>
-          <div className="audience-actions">
-            <button className="primary-button glow-button" onClick={onLogin}>
-              <ContactRound size={18} />
-              Conectar minha rede
-            </button>
-            <button className="secondary-button" onClick={() => onModeChange("hub")}>
-              <Users size={18} />
-              Ver página para hubs
-            </button>
-          </div>
-        </div>
-        <div className="audience-workflow">
-          {[
-            ["1", "Conectar fontes", "Google Contacts, Google Agenda, Apple vCard, Apple Agenda .ics e CSV."],
-            ["2", "Revisar dados", "Nome, telefone, email, DDD, empresa, cargo, demanda e origem."],
-            ["3", "Filtrar oportunidades", "Clientes potenciais, parceiros comerciais, prestadores e decisores."],
-            ["4", "Agir com contexto", "Grafo e chat mostram por que a pessoa apareceu e qual abordagem faz sentido."]
-          ].map(([step, title, body]) => (
-            <article key={step}>
-              <span>{step}</span>
-              <strong>{title}</strong>
-              <p>{body}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-    </>
+    <AudienceDetailLanding
+      mode="personal"
+      eyebrow="Landing para empresários"
+      title="Do contato salvo à oportunidade acionável."
+      body="O foco é organizar a base pessoal do empresário e revelar quem pode comprar, indicar, fornecer, resolver ou abrir portas."
+      steps={[
+        ["1", "Conectar fontes", "Google Contacts, Google Agenda, Apple vCard/.ics e CSV entram logo no começo."],
+        ["2", "Qualificar pessoas", "Telefone, DDD, empresa, cargo, área, demanda, problema resolvido e origem ficam visíveis."],
+        ["3", "Filtrar intenção", "Cruze diretor + finanças, marketing + B2B, DDD + fornecedor e outras combinações."],
+        ["4", "Agir", "Chat e grafo indicam por que a pessoa apareceu e qual abordagem faz mais sentido."]
+      ]}
+      outcomes={[
+        "Encontrar clientes potenciais dentro da própria agenda.",
+        "Separar fornecedores, parceiros e decisores por contexto.",
+        "Planejar introduções sem depender só da memória.",
+        "Manter a rede privada enquanto decide o que torna público."
+      ]}
+      onLogin={onLogin}
+      onModeChange={onModeChange}
+    />
   );
 }
 
 function HubLandingPage({ onLogin, onModeChange }: { onLogin: () => void; onModeChange: (mode: LandingMode) => void }) {
   return (
-    <>
-      <LandingSections mode="hub" onLogin={onLogin} onModeChange={onModeChange} />
-      <section className="audience-page-section hub">
-        <div>
-          <span className="context group">Página 2 · Hubs, eventos e empresas</span>
-          <h2>Para operar uma base compartilhada com permissões e curadoria.</h2>
-          <p>
-            Hubs, eventos, empresas e comunidades importam participantes, criam grupos por trilha, tema ou mesa de
-            negócios, e ajudam membros a encontrar conexões úteis sem expor dados privados de cada usuário.
-          </p>
-          <div className="audience-actions">
-            <button className="primary-button glow-button" onClick={onLogin}>
-              <Users size={18} />
-              Criar hub demonstrativo
-            </button>
-            <button className="secondary-button" onClick={() => onModeChange("personal")}>
-              <ContactRound size={18} />
-              Ver página para empresários
-            </button>
-          </div>
-        </div>
-        <div className="audience-workflow">
-          {[
-            ["1", "Base do grupo", "CSV corporativo, lista de inscritos, agenda do evento, Meetup futuro ou OpenAPI."],
-            ["2", "Governança", "Admins, membros, campos customizados, opt-in público e permissões por tenant."],
-            ["3", "Curadoria", "Matches por área, cargo, demanda, solução, DDD, empresa, interesse e trilha."],
-            ["4", "Follow-up", "Grafo do grupo, Rede pública opcional, chat de busca e histórico pós-evento."]
-          ].map(([step, title, body]) => (
-            <article key={step}>
-              <span>{step}</span>
-              <strong>{title}</strong>
-              <p>{body}</p>
-            </article>
-          ))}
-        </div>
-      </section>
-    </>
+    <AudienceDetailLanding
+      mode="hub"
+      eyebrow="Landing para hubs, eventos e empresas"
+      title="Uma base compartilhada para fazer pessoas certas se encontrarem."
+      body="O foco é dar governança para comunidades, eventos e empresas que precisam carregar participantes, criar grupos e sugerir conexões úteis."
+      steps={[
+        ["1", "Carregar participantes", "CSV, lista de inscritos, agenda do evento, Meetup futuro ou OpenAPI alimentam a base do grupo."],
+        ["2", "Organizar grupos", "Trilhas, mesas, empresas, patrocinadores e comunidades ganham cores, tags e permissões."],
+        ["3", "Curar encontros", "Matches por área, cargo, demanda, solução, DDD, empresa, interesse e trilha."],
+        ["4", "Medir follow-up", "Grafo do grupo, Rede pública opcional e chat ajudam antes, durante e depois do evento."]
+      ]}
+      outcomes={[
+        "Ajudar membros a descobrir com quem conversar.",
+        "Separar dados privados, públicos e compartilhados.",
+        "Criar experiências de networking para eventos e comunidades.",
+        "Transformar uma lista de inscritos em um mapa vivo de relações."
+      ]}
+      onLogin={onLogin}
+      onModeChange={onModeChange}
+    />
   );
 }
 
-function LandingSections({
+function AudienceDetailLanding({
   mode,
+  eyebrow,
+  title,
+  body,
+  steps,
+  outcomes,
   onLogin,
   onModeChange
 }: {
-  mode: LandingMode;
+  mode: AudienceMode;
+  eyebrow: string;
+  title: string;
+  body: string;
+  steps: string[][];
+  outcomes: string[];
   onLogin: () => void;
   onModeChange: (mode: LandingMode) => void;
 }) {
-  const sections = [
-    {
-      icon: ContactRound,
-      title: "Importação simples logo no começo",
-      body: "Google entra por OAuth. Apple entra por vCard/.ics no web. CSV continua disponível para bases de eventos e empresas.",
-      stat: "Google + Apple + CSV",
-      meta: "preview antes de salvar"
-    },
-    {
-      icon: Network,
-      title: "Dados viram relações visíveis",
-      body: "Pessoas, tags, DDDs, fontes, grupos, demandas e soluções aparecem no grafo com filtros cumulativos.",
-      stat: "pessoas + contexto",
-      meta: "zoom, pan e filtros"
-    },
-    {
-      icon: Bot,
-      title: "Busca responde perguntas de networking",
-      body: "O usuário pergunta quem resolve algo, quem busca algo, quem é decisor ou quem está em um DDD específico.",
-      stat: "resposta com cards",
-      meta: "IA futura com confirmação"
-    }
-  ];
-  const customerPaths = [
-    {
-      mode: "personal" as const,
-      title: "Empresário e conector individual",
-      subtitle: "B2C",
-      body: "Organiza a própria rede para achar clientes, fornecedores, parceiros e pessoas certas para introduções.",
-      points: ["Google Contacts", "Google Agenda", "Apple vCard/.ics", "DDD", "grafo privado"]
-    },
-    {
-      mode: "hub" as const,
-      title: "Hub, evento ou empresa",
-      subtitle: "B2B / B2B2C",
-      body: "Carrega membros ou participantes, cria grupos compartilhados e facilita conexões dentro da comunidade.",
-      points: ["importação em lote", "participantes", "grupos", "permissões", "curadoria"]
-    }
-  ];
-  const modeExplainers = {
-    personal: {
-      title: "Landing para empresários",
-      body:
-        "Foco em conectar fontes pessoais, revisar contatos, qualificar cargo/área/DDD/demanda e encontrar oportunidades comerciais.",
-      cta: "Ver modo hubs e eventos"
-    },
-    hub: {
-      title: "Landing para hubs, eventos e empresas",
-      body:
-        "Foco em bases compartilhadas, importação de participantes, grupos com permissões e curadoria de conexões entre membros.",
-      cta: "Ver modo empresários"
-    }
-  } satisfies Record<LandingMode, { title: string; body: string; cta: string }>;
-  const currentModeExplainer = modeExplainers[mode];
+  const otherMode = mode === "personal" ? "hub" : "personal";
+  const otherLabel = mode === "personal" ? "Ver landing para hubs" : "Ver landing para empresários";
 
   return (
-    <div className="landing-flow">
-      <section className="landing-page-pair" aria-label="Landings por cliente">
-        {customerPaths.map((path) => (
-          <button
-            key={path.title}
-            className={mode === path.mode ? "landing-switch-card active" : "landing-switch-card"}
-            onClick={() => onModeChange(path.mode)}
-          >
-            <span className={path.mode === "personal" ? "context public" : "context group"}>{path.subtitle}</span>
-            <strong>{path.title}</strong>
-            <small>{path.body}</small>
-          </button>
-        ))}
+    <div className={`audience-detail-flow audience-detail-${mode}`}>
+      <section className="audience-section-head">
+        <span className={mode === "personal" ? "context public" : "context group"}>{eyebrow}</span>
+        <h2>{title}</h2>
+        <p>{body}</p>
       </section>
 
-      <motion.section
-        className="landing-band split"
-        initial={{ opacity: 0, y: 36 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, amount: 0.35 }}
-        transition={{ duration: 0.65, ease: "easeOut" }}
-      >
-        <div>
-          <span className="context public">como funciona</span>
-          <h2>{currentModeExplainer.title}</h2>
-          <p>{currentModeExplainer.body}</p>
-          <button
-            className="secondary-button compact"
-            onClick={() => onModeChange(mode === "personal" ? "hub" : "personal")}
-          >
-            <ChevronRight size={16} />
-            {currentModeExplainer.cta}
-          </button>
-        </div>
-        <div className="flow-rail">
-          {["Importar contatos", "Enriquecer contexto", "Sugerir matches", "Navegar pelo grafo"].map((item, index) => (
-            <div className="flow-step-card" key={item}>
-              <span>{index + 1}</span>
-              <strong>{item}</strong>
-            </div>
-          ))}
-        </div>
-      </motion.section>
-
-      <section className="customer-paths">
-        {customerPaths.map((path) => (
-          <article className={mode === path.mode ? "customer-path-card spotlight-card active" : "customer-path-card spotlight-card"} key={path.title}>
-            <span className={path.mode === "personal" ? "context public" : "context group"}>{path.subtitle}</span>
-            <h3>{path.title}</h3>
-            <p>{path.body}</p>
-            <div className="connector-data-list">
-              {path.points.map((point) => <i key={point}>{point}</i>)}
-            </div>
+      <section className="audience-process-grid" aria-label="Fluxo principal da landing">
+        {steps.map(([step, stepTitle, stepBody]) => (
+          <article className="spotlight-card" key={stepTitle}>
+            <span>{step}</span>
+            <strong>{stepTitle}</strong>
+            <p>{stepBody}</p>
           </article>
         ))}
       </section>
 
-      <section className="landing-card-grid">
-        {sections.map((section, index) => {
-          const Icon = section.icon;
-          return (
-            <motion.article
-              className="landing-feature-card spotlight-card"
-              key={section.title}
-              initial={{ opacity: 0, y: 28 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.35 }}
-              transition={{ duration: 0.55, delay: index * 0.08, ease: "easeOut" }}
-            >
-              <span className="feature-icon"><Icon size={20} /></span>
-              <h3>{section.title}</h3>
-              <p>{section.body}</p>
-              <div>
-                <strong>{section.stat}</strong>
-                <small>{section.meta}</small>
-              </div>
-            </motion.article>
-          );
-        })}
+      <section className="audience-outcome-band">
+        <div>
+          <span className="context private">o que precisa ficar claro</span>
+          <h2>{mode === "personal" ? "A agenda vira estratégia de relacionamento." : "A comunidade ganha curadoria e governança."}</h2>
+        </div>
+        <div className="audience-outcome-list">
+          {outcomes.map((outcome) => (
+            <article key={outcome}>
+              <Check size={17} />
+              <span>{outcome}</span>
+            </article>
+          ))}
+        </div>
       </section>
 
-      <motion.section
-        className="landing-band visual"
-        initial={{ opacity: 0, y: 36 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        viewport={{ once: true, amount: 0.35 }}
-        transition={{ duration: 0.65, ease: "easeOut" }}
-      >
-        <div className="visual-copy">
-          <span className="context group">produto em uso</span>
-          <h2>Depois da importação, a rede fica navegável.</h2>
-          <p>
-            O usuário sai de uma agenda solta para uma leitura prática: quem é decisor, quem compra, quem resolve,
-            quem está perto e quais grupos aproximam essas pessoas.
-          </p>
+      <section className="audience-cta-band">
+        <div>
+          <h2>{mode === "personal" ? "Começar pela minha rede privada." : "Montar um hub demonstrativo."}</h2>
+          <p>O protótipo abre com dados locais para teste e mantém os conectores no primeiro passo da experiência.</p>
+        </div>
+        <div className="audience-actions centered">
           <button className="primary-button glow-button" onClick={onLogin}>
-            <Sparkles size={18} />
+            {mode === "personal" ? <ContactRound size={18} /> : <Users size={18} />}
             Abrir protótipo
           </button>
+          <button className="secondary-button" onClick={() => onModeChange(otherMode)}>
+            <ChevronRight size={18} />
+            {otherLabel}
+          </button>
+          <button className="secondary-button" onClick={() => onModeChange("choice")}>
+            <CircleDot size={18} />
+            Voltar à escolha
+          </button>
         </div>
-        <div className="landing-orbit">
-          <NetworkBackdrop density={40} interactive={false} />
-          <span className="orbit-person main">Grafy</span>
-          <span className="orbit-person a">Eventos</span>
-          <span className="orbit-person b">Founders</span>
-          <span className="orbit-person c">PMEs</span>
-          <span className="orbit-person d">IA</span>
-        </div>
-      </motion.section>
+      </section>
     </div>
   );
 }

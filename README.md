@@ -42,7 +42,7 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 
 | Área | O que demonstra |
 | --- | --- |
-| Landing/onboarding | Duas entradas reais: `#/empresarios` para B2C e `#/hubs-eventos` para B2B/B2B2C. O primeiro card já prioriza conectar Google ou importar Apple antes de abrir o workspace. |
+| Landing/onboarding | Entrada central em `#/` perguntando o tipo de negócio, com caminhos dedicados em `#/empresarios` para B2C e `#/hubs-eventos` para B2B/B2B2C. O primeiro acesso já prioriza conectar Google ou importar Apple antes de abrir o workspace. |
 | Dashboard | Métricas da base, atalhos, oportunidades e visão geral do workspace. |
 | Contatos | CRUD inicial, tags, demandas, problema que resolve, links, grupos e status público/privado. |
 | Importação | Onboarding com Google Contacts + Google Agenda quando `VITE_GOOGLE_CLIENT_ID` existe; Apple Contacts por `.vcf`, Apple Agenda por `.ics`, CSV e importação manual. |
@@ -55,9 +55,9 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 
 ## Tour visual
 
-| Landing empresários | Landing hubs/eventos |
-| --- | --- |
-| ![Landing para empresários no Grafy](docs/assets/grafy-01-landing.png) | ![Landing para hubs e eventos no Grafy](docs/assets/grafy-09-landing-hub.png) |
+| Escolha inicial | Landing empresários | Landing hubs/eventos |
+| --- | --- | --- |
+| ![Escolha inicial do Grafy](docs/assets/grafy-01-landing.png) | ![Landing para empresários no Grafy](docs/assets/grafy-10-landing-empresarios.png) | ![Landing para hubs e eventos no Grafy](docs/assets/grafy-09-landing-hub.png) |
 
 | Dashboard | Grafo |
 | --- | --- |
@@ -155,7 +155,7 @@ npm run preview -- --port 4176
 
 Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides/demo-script.md). A versão publicada é pensada para teste de navegação e apresentação do conceito:
 
-1. Abrir a landing de empresários ou hubs/eventos pelo seletor do topo ou pelos links diretos.
+1. Abrir a escolha inicial e selecionar **Empresário** ou **Hub, evento ou empresa**.
 2. Entrar com o modo demonstrativo.
 3. No primeiro card, testar **Conectar Google**, **Apple .vcf/.ics** ou entrar com dados de demonstração. Depois, usar **Importar** para CSV, vCard, `.ics` e revisão complementar.
 4. Mostrar dashboard, grafo, rede pública, grupos e chat.
@@ -164,6 +164,7 @@ Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides
 
 Links úteis:
 
+- [Escolha inicial](https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/#/)
 - [Landing empresários](https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/#/empresarios)
 - [Landing hubs, eventos e empresas](https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/#/hubs-eventos)
 

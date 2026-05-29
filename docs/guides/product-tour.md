@@ -12,15 +12,17 @@ Versão em vídeo curto: [grafy-demo-flow.mp4](../assets/grafy-demo-flow.mp4)
 
 ![Landing do Grafy](../assets/grafy-01-landing.png)
 
+![Landing para empresários](../assets/grafy-10-landing-empresarios.png)
+
 ![Landing de hubs e eventos](../assets/grafy-09-landing-hub.png)
 
-A entrada mostra a proposta central sem obrigar o usuário a procurar importação depois: conectar Google ou carregar Apple logo no primeiro acesso para abrir o workspace com contatos.
+A entrada começa com uma escolha central: **Empresário** ou **Hub, evento ou empresa**. Depois disso, cada público vê uma landing própria e o onboarding mantém Google/Apple logo no primeiro acesso para abrir o workspace com contatos.
 
 Pontos para comentar:
 
 - O produto nasce como PWA-first.
 - A experiência foi pensada para desktop e Android.
-- O topo permite alternar entre duas páginas reais: `#/empresarios` para **Empresários** e `#/hubs-eventos` para **Hubs e eventos**.
+- A rota `#/` pergunta o tipo de negócio sem poluir o topo; `#/empresarios` e `#/hubs-eventos` abrem páginas dedicadas.
 - A versão B2C fala de rede privada, oportunidades, clientes, parceiros e fornecedores.
 - A versão B2B/B2B2C fala de participantes, grupos compartilhados, comunidades e curadoria de matches.
 - O onboarding já tenta Google real quando `VITE_GOOGLE_CLIENT_ID` está configurado; login persistente com Supabase fica para a próxima fase.

@@ -30,7 +30,7 @@ Mostre a tela inicial e comente:
 - Visual premium e PWA-first.
 - Fundo de rede interativo.
 - Produto orientado a networking, não a uma profissão específica.
-- Duas páginas: `#/empresarios` e `#/hubs-eventos`.
+- Três entradas: `#/` pergunta o tipo de negócio, `#/empresarios` abre B2C e `#/hubs-eventos` abre B2B/B2B2C.
 - B2C: rede privada do empresário para clientes, parceiros e fornecedores.
 - B2B/B2B2C: base compartilhada para eventos, hubs, comunidades e empresas.
 
