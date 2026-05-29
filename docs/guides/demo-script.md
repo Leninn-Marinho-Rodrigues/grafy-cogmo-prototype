@@ -19,7 +19,7 @@ Avisos importantes:
 - É um protótipo funcional.
 - O login atual é demonstrativo.
 - Os dados ficam no navegador da pessoa.
-- Integrações reais com Google, LinkedIn, Meetup e Supabase entram na próxima fase.
+- Integrações reais com Google, Apple nativo, LinkedIn, Meetup e Supabase entram na próxima fase.
 
 ## Demo de 5 minutos
 
@@ -30,8 +30,11 @@ Mostre a tela inicial e comente:
 - Visual premium e PWA-first.
 - Fundo de rede interativo.
 - Produto orientado a networking, não a uma profissão específica.
+- Alternância entre **Empresários** e **Hubs e eventos** no topo.
+- B2C: rede privada do empresário para clientes, parceiros e fornecedores.
+- B2B/B2B2C: base compartilhada para eventos, hubs, comunidades e empresas.
 
-### 2. Entrada demonstrativa
+### 2. Entrada demonstrativa e importação
 
 Clique em **Entrar sem senha real**.
 
@@ -39,6 +42,12 @@ Comente:
 
 - Cada pessoa pode testar sem criar conta real.
 - No futuro, a entrada será Google login, magic link e Supabase Auth.
+
+Abra **Importar** e demonstre:
+
+- **Google Data Hub:** importa amostra de Google Contacts + Agenda.
+- **Apple Contacts + Calendar:** importa amostra Apple ou um `.vcf` exportado do iCloud/Contatos.
+- **CSV:** mantém o caminho simples para bases corporativas e testes rápidos.
 
 ### 3. Dashboard
 
@@ -126,6 +135,10 @@ Na aba **Ajustes**, use **Apagar conta de teste**. Isso limpa o workspace salvo 
 ### Já puxa contatos reais do Google?
 
 Ainda não neste protótipo. A interface e a arquitetura estão preparadas para Google People API com OAuth e backend seguro.
+
+### Já puxa Apple Contacts?
+
+No protótipo web, sim por arquivo vCard/.vcf ou texto colado. A coleta nativa direta de Apple Contacts e Apple Calendar exige app nativo/wrapper com Contacts framework e EventKit.
 
 ### Dá para puxar LinkedIn?
 

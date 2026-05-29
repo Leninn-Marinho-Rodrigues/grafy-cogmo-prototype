@@ -28,6 +28,7 @@ flowchart TB
   Graph --> GraphBuilder["buildGraph()"]
   Chat --> Search["searchContacts()"]
   Integrations --> GoogleHub["Google Data Hub demo"]
+  Integrations --> AppleHub["Apple vCard demo"]
 ```
 
 O protótipo agora demonstra a entrada de dados que o produto precisa ter em produção:
@@ -35,6 +36,7 @@ O protótipo agora demonstra a entrada de dados que o produto precisa ter em pro
 - **B2C:** empresário/conector individual importa Google Contacts, CSV e agenda própria para achar clientes, fornecedores, parceiros e oportunidades.
 - **B2B/B2B2C:** hub, evento, empresa ou comunidade importa uma base de membros/participantes, cria grupos compartilhados e usa o grafo para curadoria de conexões.
 - **Google Data Hub:** a UI mostra o fluxo oficial esperado: login Google, contatos via People API, agenda via Calendar API, preview, deduplicação, enriquecimento por DDD e aprovação antes de gravar.
+- **Apple Contacts + Calendar:** a UI aceita vCard/.vcf como caminho web seguro e mostra o desenho nativo futuro com Contacts framework e EventKit para contatos, eventos e participantes autorizados.
 - **Localidade por DDD:** telefones continuam gerando DDD; o DDD agora também aparece como localidade/região para filtro, grafo, detalhe do contato e chat.
 
 ## Mapa dos arquivos principais
@@ -104,6 +106,7 @@ flowchart LR
   SupabaseAuth --> RLS["Postgres + RLS"]
   Edge --> Google["Google People API"]
   Edge --> Calendar["Google Calendar API"]
+  Edge --> AppleNative["Apple Contacts / EventKit"]
   Edge --> Meetup["Meetup GraphQL"]
   Edge --> AI["Copilot tools"]
 
@@ -147,6 +150,9 @@ Entidades recomendadas:
 - `google_connections`
 - `calendar_events`
 - `calendar_event_attendees`
+- `apple_imports`
+- `apple_calendar_events`
+- `apple_calendar_attendees`
 - `tenant_accounts`
 - `tenant_members`
 - `tenant_import_batches`
@@ -155,6 +161,8 @@ Entidades recomendadas:
 
 - **Google Contacts:** via Google People API, com OAuth, `people.connections.list`, `personFields` mínimos, preview e deduplicação antes de salvar.
 - **Google Calendar:** via Calendar API, com `events.list` para eventos autorizados, participantes, origem do encontro, local e follow-up.
+- **Apple Contacts:** no web MVP, importar vCard/.vcf exportado do iCloud/Contatos. Em app nativo, usar Contacts framework/CNContactStore com permissão, preview e deduplicação.
+- **Apple Calendar:** no app nativo, usar EventKit para eventos e participantes autorizados. No web, tratar como importação por arquivo ou amostra até existir integração oficial adequada.
 - **LinkedIn:** usar APIs oficiais aprovadas e/ou pesquisa assistida com revisão humana. Não depender de scraping logado.
 - **Meetup:** usar GraphQL/OAuth quando houver token e permissões.
 - **Instagram/X:** tratar como conectores futuros de APIs oficiais; não importar rede privada sem consentimento.

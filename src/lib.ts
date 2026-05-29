@@ -240,7 +240,7 @@ export const graphFilterGroups = [
   { label: "Áreas", tags: ["marketing", "vendas", "finanças", "financeiro", "investimentos", "tecnologia", "produto", "jurídico", "operações", "eventos", "segurança", "RH", "customer success", "construção"] },
   { label: "Negócios", tags: ["B2B", "SaaS", "PME", "startups", "consultoria", "serviços B2B", "serviços locais", "fornecedores", "comunidade", "healthtech", "scale-up", "SaaS vertical", "Venture"] },
   { label: "Estratégia", tags: ["parcerias", "fundraising", "investimento", "contratos recorrentes", "growth", "compliance", "expansão", "recrutamento", "limpeza", "governança"] },
-  { label: "Fontes", tags: ["Google Contacts", "Google Calendar", "CSV", "Manual", "Rede Pública"] },
+  { label: "Fontes", tags: ["Google Contacts", "Google Calendar", "Apple Contacts", "Apple Calendar", "CSV", "Manual", "Rede Pública"] },
   { label: "Localidade", tags: ["DDD 11", "DDD 21", "DDD 31", "DDD 41", "DDD 61", "DDD 81", "DDD 85", "São Paulo/SP", "Rio de Janeiro/RJ", "Belo Horizonte/MG", "Curitiba/PR", "Brasília/DF", "Recife/PE", "Fortaleza/CE", "Sudeste", "Nordeste", "Sul"] },
   { label: "Pastas", tags: ["Founders e Investidores", "Networking de Eventos", "Empresários Regionais", "decisores"] }
 ];
@@ -354,6 +354,50 @@ export const parseCsvContacts = (csv: string): Partial<Contact>[] => {
       currentDemand: record.demanda || record.current_demand || "",
       problemSolves: record.resolve || record.problem_solves || "",
       source: "CSV"
+    };
+  });
+};
+
+export const parseVcardContacts = (vcard: string): Partial<Contact>[] => {
+  const cards = vcard
+    .split(/END:VCARD/i)
+    .map((card) => card.trim())
+    .filter(Boolean);
+
+  return cards.map((card) => {
+    const lines = card.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const findValue = (prefixes: string[]) => {
+      const line = lines.find((item) => prefixes.some((prefix) => item.toUpperCase().startsWith(prefix)));
+      if (!line) return "";
+      return line.slice(line.indexOf(":") + 1).trim();
+    };
+    const name = findValue(["FN:"]) || findValue(["N:"]).split(";").filter(Boolean).reverse().join(" ");
+    const phones = unique(
+      lines
+        .filter((line) => line.toUpperCase().startsWith("TEL"))
+        .map((line) => line.slice(line.indexOf(":") + 1).trim())
+    );
+    const emails = unique(
+      lines
+        .filter((line) => line.toUpperCase().startsWith("EMAIL"))
+        .map((line) => line.slice(line.indexOf(":") + 1).trim())
+    );
+    const org = findValue(["ORG:"]);
+    const title = findValue(["TITLE:"]);
+    const note = findValue(["NOTE:"]);
+    const ddd = extractDdd(phones[0] ?? "");
+
+    return {
+      name: name || "Contato Apple sem nome",
+      headline: unique([title, org]).join(" · "),
+      description: note || (org ? `Contato importado do Apple Contacts ligado a ${org}.` : "Contato importado via vCard do Apple Contacts."),
+      emails,
+      phones,
+      ddd,
+      tags: unique(["Apple Contacts", ddd ? `DDD ${ddd}` : "", org ? "empresa" : ""]),
+      currentDemand: "",
+      problemSolves: "",
+      source: "Apple Contacts"
     };
   });
 };
@@ -476,7 +520,7 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
     });
   });
 
-  const sourceTags = new Set(["Manual", "CSV", "Google Contacts", "Google Calendar", "Rede Pública", "Grupo"]);
+  const sourceTags = new Set(["Manual", "CSV", "Google Contacts", "Google Calendar", "Apple Contacts", "Apple Calendar", "Rede Pública", "Grupo"]);
   const tags = getGraphFilterTags(contacts, state.groups)
     .filter((tag) => !tag.startsWith("DDD ") && !sourceTags.has(tag))
     .slice(0, 24);

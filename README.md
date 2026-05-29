@@ -42,10 +42,10 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 
 | Área | O que demonstra |
 | --- | --- |
-| Landing/login | Entrada visual premium, animação de rede, sessão demonstrativa local e proposta do produto. |
+| Landing/login | Duas experiências de entrada: empresários B2C e hubs/eventos/empresas B2B/B2B2C, com animação de rede e sessão demonstrativa local. |
 | Dashboard | Métricas da base, atalhos, oportunidades e visão geral do workspace. |
 | Contatos | CRUD inicial, tags, demandas, problema que resolve, links, grupos e status público/privado. |
-| Importação | CSV funcional, importação manual e amostra Google Data Hub com Contacts + Agenda para validar o fluxo real. |
+| Importação | CSV funcional, importação manual, Google Data Hub com Contacts + Agenda e Apple Contacts por vCard, com amostras para validar o fluxo real. |
 | Grafo | Nós de contatos, tags, DDDs/localidade, fontes, grupos, demandas e soluções; pan, zoom, filtros cumulativos e inspetor lateral. |
 | Rede pública | Perfis opt-in, cards públicos, filtros e separação clara da base privada. |
 | Grupos | Board de pastas/grupos com tags, cores, contatos e impacto visual no grafo para hubs, eventos e empresas. |
@@ -71,6 +71,10 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 | --- |
 | ![Versão mobile do Grafy](docs/assets/grafy-07-mobile.png) |
 
+| Importação Google/Apple |
+| --- |
+| ![Importação Google e Apple no Grafy](docs/assets/grafy-08-import-google-apple.png) |
+
 ## Arquitetura resumida
 
 ```mermaid
@@ -88,6 +92,7 @@ flowchart LR
   Futuro["Próxima fase"] --> Supabase["Supabase Auth + Postgres + RLS"]
   Futuro --> Google["Google People API"]
   Futuro --> Calendar["Google Calendar API"]
+  Futuro --> Apple["Apple Contacts / EventKit"]
   Futuro --> IA["CopilotKit / AG-UI"]
   Futuro --> OpenAPI["OpenAPI / Swagger"]
 ```
@@ -101,7 +106,7 @@ Mais detalhes em [docs/guides/architecture.md](docs/guides/architecture.md).
 - **PWA:** manifest, service worker e página offline.
 - **Persistência atual:** localStorage para protótipo demonstrativo.
 - **Deploy:** GitHub Pages via GitHub Actions.
-- **Evolução recomendada:** Supabase Auth, Postgres com RLS, Google People API, Google Calendar API, OpenAPI/Swagger e copiloto com ferramentas confirmadas.
+- **Evolução recomendada:** Supabase Auth, Postgres com RLS, Google People API, Google Calendar API, Apple Contacts/EventKit para app nativo, OpenAPI/Swagger e copiloto com ferramentas confirmadas.
 
 ## Rodando localmente
 
@@ -149,17 +154,24 @@ npm run preview -- --port 4176
 
 Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides/demo-script.md). A versão publicada é pensada para teste de navegação e apresentação do conceito:
 
-1. Abrir a landing.
+1. Abrir a landing de empresários ou hubs/eventos pelo seletor do topo.
 2. Entrar com o modo demonstrativo.
-3. Mostrar dashboard, grafo, rede pública e chat.
-4. Explicar que os dados ficam no navegador.
-5. Apagar dados de teste em **Ajustes** quando necessário.
+3. Ir em **Importar** e testar Google Data Hub, Apple vCard ou CSV.
+4. Mostrar dashboard, grafo, rede pública, grupos e chat.
+5. Explicar que os dados ficam no navegador.
+6. Apagar dados de teste em **Ajustes** quando necessário.
+
+Links úteis:
+
+- [Landing empresários](https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/#empresarios)
+- [Landing hubs, eventos e empresas](https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/#hubs-eventos)
 
 ## Limites importantes
 
 - O login atual é demonstrativo; autenticação real entra na fase Supabase/Google.
 - Dados de teste são persistidos no navegador de cada pessoa, não em um banco compartilhado.
-- Google Contacts, Google Calendar, LinkedIn, Meetup, Instagram e X/Twitter aparecem como direção técnica e conectores preparados, não como coleta real em produção.
+- Google Contacts, Google Calendar, Apple Contacts, Apple Calendar, LinkedIn, Meetup, Instagram e X/Twitter aparecem como direção técnica e conectores preparados, não como coleta real em produção.
+- Apple Contacts funciona no protótipo por vCard/.vcf colado ou carregado; Apple Calendar real exige app nativo ou integração autorizada com EventKit.
 - Enriquecimento externo deve ser feito com APIs oficiais, consentimento e revisão humana; o sistema não deve depender de scraping logado.
 
 ## Próximas fases
@@ -168,11 +180,12 @@ Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides
 2. Criar migrations para contatos, tags, grupos, campos customizados, perfis públicos, imports e chat.
 3. Implementar Google Contacts via backend seguro com OAuth e Google People API.
 4. Implementar Google Agenda via Calendar API para eventos, participantes, origem e follow-up.
-5. Modelar tenants para hubs/eventos/empresas, com membros, imports em lote e permissões.
-6. Evoluir o grafo para uma engine especializada quando a base crescer.
-7. Adicionar OpenAPI/Swagger e webhooks para integrações.
-8. Integrar copiloto com ferramentas de leitura e escrita confirmada.
-9. Separar dados de demo, staging e produção.
+5. Implementar Apple Contacts por vCard no web e Contacts/EventKit no app nativo quando houver wrapper mobile.
+6. Modelar tenants para hubs/eventos/empresas, com membros, imports em lote e permissões.
+7. Evoluir o grafo para uma engine especializada quando a base crescer.
+8. Adicionar OpenAPI/Swagger e webhooks para integrações.
+9. Integrar copiloto com ferramentas de leitura e escrita confirmada.
+10. Separar dados de demo, staging e produção.
 
 ## Documentação
 

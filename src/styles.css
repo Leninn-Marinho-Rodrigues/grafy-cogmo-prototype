@@ -434,6 +434,34 @@ label {
   font-weight: 800;
 }
 
+.landing-mode-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid rgba(88, 166, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(13, 17, 23, 0.62);
+  padding: 4px;
+}
+
+.landing-mode-tabs button {
+  min-height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #aebed0;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.landing-mode-tabs button.active {
+  background: linear-gradient(135deg, rgba(88, 166, 255, 0.28), rgba(96, 242, 213, 0.18));
+  color: #f3fbff;
+  box-shadow: inset 0 0 0 1px rgba(102, 231, 255, 0.22);
+}
+
 .auth-hero {
   width: min(1220px, 100%);
   min-height: calc(100vh - 118px);
@@ -718,6 +746,7 @@ label {
 .nav-item,
 .mobile-tabs button,
 .landing-feature-card,
+.landing-switch-card,
 .flow-step-card,
 .onboarding-strip button,
 .connector-card,
@@ -815,6 +844,53 @@ label {
   margin: 38px auto 80px;
 }
 
+.landing-page-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.landing-switch-card {
+  display: grid;
+  gap: 10px;
+  min-height: 164px;
+  border: 1px solid rgba(88, 166, 255, 0.16);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 16% 8%, rgba(102, 231, 255, 0.12), transparent 35%),
+    rgba(13, 17, 23, 0.72);
+  color: var(--text);
+  padding: 20px;
+  text-align: left;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(18px);
+}
+
+.landing-switch-card:hover,
+.landing-switch-card.active {
+  transform: translateY(-3px);
+  border-color: rgba(102, 231, 255, 0.45);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.3);
+}
+
+.landing-switch-card.active {
+  background:
+    radial-gradient(circle at 16% 8%, rgba(96, 242, 213, 0.18), transparent 36%),
+    linear-gradient(135deg, rgba(88, 166, 255, 0.12), rgba(96, 242, 213, 0.08)),
+    rgba(13, 17, 23, 0.82);
+}
+
+.landing-switch-card strong {
+  font-size: 24px;
+  line-height: 1.12;
+}
+
+.landing-switch-card small {
+  color: #aebed0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
 .landing-band {
   border: 1px solid rgba(88, 166, 255, 0.18);
   border-radius: 18px;
@@ -903,6 +979,13 @@ label {
     rgba(13, 17, 23, 0.74);
   padding: 22px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.18);
+}
+
+.customer-path-card.active {
+  border-color: rgba(96, 242, 213, 0.42);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(96, 242, 213, 0.18), transparent 34%),
+    rgba(13, 17, 23, 0.86);
 }
 
 .customer-path-card h3,
@@ -1850,8 +1933,21 @@ label {
   right: 16px;
 }
 
-.google-data-hub {
+.google-data-hub,
+.apple-data-hub {
   grid-column: 1 / -1;
+}
+
+.apple-data-hub {
+  border-color: rgba(210, 153, 34, 0.24);
+  background:
+    radial-gradient(circle at 84% 12%, rgba(210, 153, 34, 0.12), transparent 34%),
+    var(--surface);
+}
+
+.integration-card.tall.apple-data-hub .status-pill {
+  position: static;
+  justify-self: start;
 }
 
 .google-source-flow {
@@ -1899,6 +1995,26 @@ label {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 9px;
+}
+
+.apple-import-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.88fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.vcard-box {
+  min-height: 210px;
+}
+
+.file-input {
+  margin-top: 10px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.apple-preview-list {
+  align-content: start;
 }
 
 .google-preview-row {
@@ -3267,6 +3383,8 @@ label {
   }
 
   .auth-value-grid,
+  .landing-page-pair,
+  .apple-import-layout,
   .onboarding-strip,
   .customer-paths,
   .buyer-map,

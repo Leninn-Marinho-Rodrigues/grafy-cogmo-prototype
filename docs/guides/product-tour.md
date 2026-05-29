@@ -18,6 +18,9 @@ Pontos para comentar:
 
 - O produto nasce como PWA-first.
 - A experiência foi pensada para desktop e Android.
+- O topo permite alternar entre a landing para **Empresários** e a landing para **Hubs e eventos**.
+- A versão B2C fala de rede privada, oportunidades, clientes, parceiros e fornecedores.
+- A versão B2B/B2B2C fala de participantes, grupos compartilhados, comunidades e curadoria de matches.
 - O login real com Google/Supabase está planejado para a próxima fase.
 - O modo atual permite testar sem conta real.
 - A proposta agora deixa claros dois usos: empresário individual e hub/evento/empresa.
@@ -93,6 +96,8 @@ Em **Ajustes**, o protótipo organiza conectores por status e deixa claro o cami
 
 - Google Contacts via OAuth e People API.
 - Google Agenda via OAuth incremental e Calendar API.
+- Apple Contacts por vCard/.vcf no web e por Contacts framework no app nativo futuro.
+- Apple Calendar por EventKit no app nativo futuro ou importação autorizada por arquivo.
 - LinkedIn oficial ou enriquecimento assistido com revisão humana.
 - Meetup GraphQL como integração futura para eventos e comunidades.
 - Instagram e X/Twitter apenas como placeholders de APIs oficiais.
@@ -101,6 +106,10 @@ Em **Ajustes**, o protótipo organiza conectores por status e deixa claro o cami
 O produto não promete scraping logado: toda integração real precisa de OAuth, preview, revisão de duplicados e aprovação antes de gravar.
 
 Na tela de **Importar**, o bloco **Google Data Hub** permite importar uma amostra demonstrativa de Contacts + Agenda. Ela adiciona contatos de calendário, participantes de eventos, DDD/localidade e contexto de origem para validar o comportamento no grafo sem fingir integração real.
+
+O bloco **Apple Contacts + Calendar** permite colar ou carregar um `.vcf` exportado do iCloud/Contatos. Também há uma amostra Apple com contatos e evento para demonstrar como essa origem aparece no grafo, nos filtros e na base de contatos.
+
+![Importação Google e Apple](../assets/grafy-08-import-google-apple.png)
 
 Campos importantes:
 

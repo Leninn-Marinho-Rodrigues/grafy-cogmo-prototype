@@ -2,7 +2,7 @@
 
 Esta pasta organiza materiais de produto, arquitetura, pesquisa e validação do protótipo.
 
-Atualização desta fase: o protótipo passou a demonstrar o fluxo Google Data Hub, separando Google Contacts, Google Agenda, DDD/localidade e os dois públicos do produto: empresário individual e hub/evento/empresa.
+Atualização desta fase: o protótipo passou a ter duas landings alternáveis para os dois clientes do produto, demonstrando empresário individual e hub/evento/empresa. A tela de importação agora também mostra Google Data Hub, Apple Contacts por vCard, Apple Calendar como caminho nativo futuro, DDD/localidade e preview antes de gravar contatos.
 
 ## Guias principais
 
@@ -32,6 +32,7 @@ Os arquivos em [assets](assets/) são usados no README e nos guias:
 - `grafy-05-chat.png`
 - `grafy-06-perfil.png`
 - `grafy-07-mobile.png`
+- `grafy-08-import-google-apple.png`
 
 ## Observação
 

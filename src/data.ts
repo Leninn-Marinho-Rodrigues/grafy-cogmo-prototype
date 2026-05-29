@@ -440,6 +440,63 @@ export const googlePreviewContactTemplates: GooglePreviewContactTemplate[] = [
   }
 ];
 
+export const applePreviewContactTemplates: GooglePreviewContactTemplate[] = [
+  {
+    name: "Patrícia Menezes",
+    headline: "Sócia em escritório boutique de marketing B2B",
+    description: "Contato vindo de uma agenda Apple/iCloud com sinais úteis de relacionamento, empresa e DDD.",
+    tags: ["Apple Contacts", "marketing", "B2B", "sócia", "decisor", "São Paulo", "parcerias"],
+    phones: ["11970001122"],
+    emails: ["patricia@menezestrategy.com"],
+    ddd: "11",
+    source: "Apple Contacts",
+    currentDemand: "Busca empresários que precisam melhorar geração de demanda e posicionamento B2B.",
+    problemSolves: "Estrutura campanhas, posicionamento e parcerias comerciais para empresas de serviços.",
+    notes: "Amostra Apple Contacts: no web MVP entra por vCard exportado; em app nativo pode entrar via CNContactStore com consentimento.",
+    links: [{ kind: "linkedin", value: "patriciamenezes-b2b" }],
+    isPublic: false,
+    groupIds: ["grp_empresarios"],
+    customFields: {
+      ticketMedio: "médio",
+      prioridade: "alta",
+      area: "marketing",
+      cargo: "Sócia",
+      tipoNegocio: "Serviços B2B",
+      origemAgenda: "Apple Contacts"
+    },
+    lastInteractionAt: "2026-05-27",
+    nextFollowUpAt: "2026-06-07"
+  },
+  {
+    name: "Rodrigo Salles",
+    headline: "Organizador de encontros executivos",
+    description: "Contato e evento demonstrativo para mostrar como Apple Calendar pode virar contexto de origem no grafo.",
+    tags: ["Apple Calendar", "eventos", "diretor", "decisor", "comunidade", "networking", "Sul"],
+    phones: ["41991112233"],
+    emails: ["rodrigo@sallesnetwork.com"],
+    ddd: "41",
+    source: "Apple Calendar",
+    currentDemand: "Procura ferramenta para conectar participantes antes do evento e ativar follow-up pós-evento.",
+    problemSolves: "Cria encontros executivos, curadoria de convidados e oportunidades de patrocínio.",
+    notes: "Amostra Apple Calendar: em produção web entra por arquivo/export; em app nativo entra por EventKit com permissão.",
+    links: [{ kind: "url", value: "https://sallesnetwork.com" }],
+    isPublic: true,
+    linkedUserId: "usr_rodrigo",
+    groupIds: ["grp_eventos"],
+    customFields: {
+      ticketMedio: "enterprise",
+      prioridade: "alta",
+      area: "eventos",
+      cargo: "Diretor",
+      tipoNegocio: "Eventos B2B",
+      origemAgenda: "Apple Calendar",
+      eventoOrigem: "Encontro Executivo Sul"
+    },
+    lastInteractionAt: "2026-05-25",
+    nextFollowUpAt: "2026-06-04"
+  }
+];
+
 export const seedCustomFields: CustomField[] = [
   {
     id: "cf_priority",
@@ -481,7 +538,7 @@ export const seedCustomFields: CustomField[] = [
 ];
 
 export const initialState: GrafyState = {
-  schemaVersion: "google-data-hub-2026-05-29",
+  schemaVersion: "dual-landing-apple-import-2026-05-29",
   profile: {
     id: "usr_lenin",
     name: "Leninn Rodrigues",
