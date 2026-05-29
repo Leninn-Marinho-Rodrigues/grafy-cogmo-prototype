@@ -14,7 +14,7 @@ flowchart TB
   App --> PWA["PWA"]
 
   State --> LocalStorage["localStorage"]
-  State --> Seed["Dados demonstrativos"]
+  State --> Imported["Dados importados no navegador"]
 
   Screens --> Dashboard["Dashboard"]
   Screens --> Contacts["Contatos"]
@@ -27,15 +27,16 @@ flowchart TB
 
   Graph --> GraphBuilder["buildGraph()"]
   Chat --> Search["searchContacts()"]
-  Integrations --> GoogleHub["Google Data Hub OAuth/demo"]
-  Integrations --> AppleHub["Apple vCard + ICS demo"]
+  Integrations --> GoogleHub["Google Data Hub OAuth"]
+  Integrations --> AppleHub["Apple ID + vCard/ICS"]
+  Integrations --> HubFiles["Excel/CSV/JSON para hubs"]
 ```
 
 O protótipo agora demonstra a entrada de dados que o produto precisa ter em produção:
 
-- **B2C:** empresário/conector individual importa Google Contacts, CSV e agenda própria para achar clientes, fornecedores, parceiros e oportunidades.
-- **B2B/B2B2C:** hub, evento, empresa ou comunidade importa uma base de membros/participantes, cria grupos compartilhados e usa o grafo para curadoria de conexões.
-- **Onboarding conector-first:** a primeira entrada do usuário já oferece Google Contacts + Google Agenda ou Apple `.vcf/.ics`, para que o workspace abra com contatos reais quando houver consentimento/importação.
+- **B2C:** empresário/conector individual importa Google Contacts, Apple vCard/.ics e agenda própria para achar clientes, fornecedores, parceiros e oportunidades.
+- **B2B/B2B2C:** hub, evento, empresa ou comunidade importa Excel, CSV ou JSON com membros/participantes, cria grupos compartilhados e usa o grafo para curadoria de conexões.
+- **Onboarding data-first:** a primeira entrada do usuário já pede Google Contacts + Google Agenda, Apple ID + `.vcf/.ics` ou arquivo de hub, para que o workspace abra com contatos reais quando houver consentimento/importação.
 - **Google Data Hub:** quando `VITE_GOOGLE_CLIENT_ID` existe, a UI abre OAuth e lê Google People API + Google Calendar API no navegador; em produção, o mesmo fluxo deve passar por backend/Edge Function para guardar tokens com segurança.
 - **Apple Contacts + Calendar:** no web, Sign in with Apple não entrega a lista de contatos do iCloud; por isso a UI aceita vCard/.vcf para contatos e `.ics` para agenda. Para app nativo futuro, usar Contacts framework e EventKit.
 - **Localidade por DDD:** telefones continuam gerando DDD; o DDD agora também aparece como localidade/região para filtro, grafo, detalhe do contato e chat.
@@ -45,7 +46,7 @@ O protótipo agora demonstra a entrada de dados que o produto precisa ter em pro
 | Arquivo | Papel |
 | --- | --- |
 | `src/App.tsx` | Composição das telas, fluxos de interação, estado e componentes principais. |
-| `src/data.ts` | Dados demonstrativos, contatos, grupos, campos e mensagens iniciais. |
+| `src/data.ts` | Estrutura inicial, grupos, campos e templates legados separados do fluxo principal. |
 | `src/lib.ts` | Funções de busca, deduplicação, geração do grafo, persistência e helpers. |
 | `src/types.ts` | Tipos de domínio: contatos, grupos, perfil, imports, chat e grafo. |
 | `src/styles.css` | Design system, layout, responsividade, cards, grafo, animações e PWA visual. |
@@ -71,7 +72,7 @@ erDiagram
 
 ## Fluxo do grafo
 
-1. Os contatos entram por seed, criação manual ou CSV.
+1. Os contatos entram por Google autorizado, Apple `.vcf/.ics`, Excel/CSV/JSON ou criação manual.
 2. Tags, DDDs, fontes, grupos, cargos, áreas e tipos de negócio viram dimensões.
 3. Demandas e problemas resolvidos também geram nós temáticos.
 4. `buildGraph()` transforma essas dimensões em nós e arestas.

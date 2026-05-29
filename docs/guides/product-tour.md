@@ -16,7 +16,7 @@ Versão em vídeo curto: [grafy-demo-flow.mp4](../assets/grafy-demo-flow.mp4)
 
 ![Landing de hubs e eventos](../assets/grafy-09-landing-hub.png)
 
-A entrada começa com uma escolha central: **Empresário** ou **Hub, evento ou empresa**. Depois disso, cada público vê uma landing própria e o onboarding mantém Google/Apple logo no primeiro acesso para abrir o workspace com contatos.
+A entrada começa com uma escolha central: **Empresário** ou **Hub, evento ou empresa**. Depois disso, cada público vê uma landing própria e o onboarding pede dados reais antes de abrir o workspace: Google/Apple para o empresário e Excel/CSV/JSON para hubs e eventos.
 
 Pontos para comentar:
 
@@ -105,13 +105,13 @@ Em **Ajustes**, o protótipo organiza conectores por status e deixa claro o cami
 - LinkedIn oficial ou enriquecimento assistido com revisão humana.
 - Meetup GraphQL como integração futura para eventos e comunidades.
 - Instagram e X/Twitter apenas como placeholders de APIs oficiais.
-- CSV/OpenAPI como caminho de importação e integração corporativa.
+- Excel/CSV/JSON/OpenAPI como caminho de importação e integração corporativa.
 
 O produto não promete scraping logado: toda integração real precisa de OAuth, preview, revisão de duplicados e aprovação antes de gravar.
 
-No onboarding e na tela de **Importar**, o bloco **Google Data Hub** tenta OAuth real quando existe `VITE_GOOGLE_CLIENT_ID`. Sem essa credencial, o protótipo usa uma amostra demonstrativa de Contacts + Agenda para validar grafo, DDD/localidade e origem sem fingir integração ativa.
+No onboarding e na tela de **Importar**, o bloco **Google Data Hub** tenta OAuth real quando existe `VITE_GOOGLE_CLIENT_ID`. Sem essa credencial, o protótipo mostra a pendência e não cria contatos artificiais.
 
-O bloco **Apple Contacts + Calendar** permite colar/carregar um `.vcf` exportado do iCloud/Contatos e um `.ics` exportado de agenda. Também há uma amostra Apple com contatos e evento para demonstrar como essa origem aparece no grafo, nos filtros e na base de contatos.
+O bloco **Apple Contacts + Calendar** permite vincular Apple ID para identidade e colar/carregar um `.vcf` exportado do iCloud/Contatos ou `.ics` exportado da agenda. A coleta direta de contatos do iCloud continua como tarefa nativa futura.
 
 ![Importação Google e Apple](../assets/grafy-08-import-google-apple.png)
 

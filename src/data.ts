@@ -553,8 +553,11 @@ export const initialState: GrafyState = {
       { kind: "url", value: "https://grafyy.lovable.app" }
     ]
   },
-  contacts: seedContacts,
-  groups: seedGroups,
+  contacts: [],
+  groups: seedGroups.map((group) => ({
+    ...group,
+    contactIds: []
+  })),
   customFields: seedCustomFields,
   chatMessages: [
     {

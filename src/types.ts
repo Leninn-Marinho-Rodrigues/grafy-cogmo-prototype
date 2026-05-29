@@ -38,7 +38,17 @@ export interface Contact {
   phones: string[];
   emails: string[];
   ddd?: string;
-  source: "Manual" | "CSV" | "Google Contacts" | "Google Calendar" | "Apple Contacts" | "Apple Calendar" | "Rede Pública" | "Grupo";
+  source:
+    | "Manual"
+    | "CSV"
+    | "JSON"
+    | "Excel"
+    | "Google Contacts"
+    | "Google Calendar"
+    | "Apple Contacts"
+    | "Apple Calendar"
+    | "Rede Pública"
+    | "Grupo";
   currentDemand: string;
   problemSolves: string;
   notes: string;

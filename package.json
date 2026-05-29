@@ -15,11 +15,28 @@
     "motion": "^12.40.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "read-excel-file": "^9.0.10",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
   },
   "devDependencies": {
     "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3"
-  }
+  },
+  "description": "Protótipo funcional do Grafy, um CRM de networking inteligente para organizar contatos, visualizar relações em grafo, encontrar oportunidades e preparar a evolução para Supabase/Google Contacts/IA.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Leninn-Marinho-Rodrigues/grafy-cogmo-prototype.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Leninn-Marinho-Rodrigues/grafy-cogmo-prototype/issues"
+  },
+  "homepage": "https://github.com/Leninn-Marinho-Rodrigues/grafy-cogmo-prototype#readme"
 }

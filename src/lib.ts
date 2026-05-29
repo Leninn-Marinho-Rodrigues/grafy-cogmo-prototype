@@ -106,6 +106,148 @@ export const splitList = (value: string) =>
       .filter(Boolean)
   );
 
+const normalizeImportKey = (key: string) => normalize(key).replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+
+const toImportText = (value: unknown): string => {
+  if (value === undefined || value === null) return "";
+  if (Array.isArray(value)) return value.map(toImportText).filter(Boolean).join(", ");
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  if (typeof value === "object") return "";
+  return String(value).trim();
+};
+
+const splitImportValue = (value: unknown): string[] => {
+  if (Array.isArray(value)) return unique(value.flatMap((item) => splitImportValue(item)));
+  return splitList(toImportText(value));
+};
+
+const readImportValue = (record: Record<string, unknown>, aliases: string[]) => {
+  const normalizedAliases = aliases.map(normalizeImportKey);
+  const entry = Object.entries(record).find(([key]) => normalizedAliases.includes(normalizeImportKey(key)));
+  return entry ? entry[1] : "";
+};
+
+const detectDelimiter = (input: string) => {
+  const firstLine = input.split(/\r?\n/).find((line) => line.trim()) ?? "";
+  const candidates = ["\t", ";", ","];
+  return candidates
+    .map((delimiter) => ({ delimiter, count: firstLine.split(delimiter).length }))
+    .sort((a, b) => b.count - a.count)[0]?.delimiter ?? ",";
+};
+
+const parseDelimitedRows = (input: string, delimiter = detectDelimiter(input)) => {
+  const rows: string[][] = [];
+  let current = "";
+  let row: string[] = [];
+  let inQuotes = false;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+    const next = input[index + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === delimiter && !inQuotes) {
+      row.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") index += 1;
+      row.push(current.trim());
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  row.push(current.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+};
+
+const recordToContactPartial = (record: Record<string, unknown>, source: Contact["source"]): Partial<Contact> => {
+  const emails = splitImportValue(readImportValue(record, ["email", "emails", "e_mail", "mail", "email_corporativo", "work_email"]));
+  const phones = splitImportValue(readImportValue(record, ["telefone", "telefones", "phone", "phones", "celular", "mobile", "whatsapp"]));
+  const company = toImportText(readImportValue(record, ["empresa", "company", "organization", "organizacao", "companhia", "org"]));
+  const title = toImportText(readImportValue(record, ["cargo", "title", "job_title", "position", "funcao", "papel"]));
+  const area = toImportText(readImportValue(record, ["area", "departamento", "department", "setor", "segmento", "industry"]));
+  const ddd = extractDdd(phones[0] ?? "");
+  const firstName = toImportText(readImportValue(record, ["nome", "name", "display_name", "nome_completo", "full_name", "participante", "membro", "contato"]));
+  const composedName = unique([
+    toImportText(readImportValue(record, ["first_name", "firstname", "primeiro_nome"])),
+    toImportText(readImportValue(record, ["last_name", "lastname", "sobrenome"]))
+  ]).join(" ");
+  const name = firstName || composedName || emails[0] || phones[0] || "Contato sem nome";
+  const currentDemand = toImportText(readImportValue(record, ["demanda", "current_demand", "currentDemand", "o_que_demanda", "precisa", "busca", "needs"]));
+  const problemSolves = toImportText(readImportValue(record, ["resolve", "problem_solves", "problemSolves", "problema_que_resolve", "solucao", "solução", "oferece", "helps"]));
+  const description = toImportText(readImportValue(record, ["descricao", "description", "bio", "resumo", "observacoes", "observações", "notes", "nota"]));
+  const tags = unique([
+    ...splitImportValue(readImportValue(record, ["tags", "tag", "interesses", "interests", "temas", "categorias", "category", "grupo", "groups", "trilha"])),
+    area,
+    title,
+    company ? "empresa" : "",
+    ddd ? `DDD ${ddd}` : ""
+  ]);
+  const links = [
+    { kind: "linkedin" as const, value: toImportText(readImportValue(record, ["linkedin", "linkedIn", "linkedin_url", "perfil_linkedin"])) },
+    { kind: "whatsapp" as const, value: toImportText(readImportValue(record, ["link_whatsapp", "whatsapp_url"])) },
+    { kind: "instagram" as const, value: toImportText(readImportValue(record, ["instagram", "instagram_url"])) },
+    { kind: "url" as const, value: toImportText(readImportValue(record, ["url", "site", "website", "link"])) }
+  ].filter((link) => link.value);
+
+  return {
+    name,
+    headline: unique([title, company, area]).join(" · "),
+    description,
+    emails,
+    phones,
+    ddd,
+    tags,
+    currentDemand,
+    problemSolves,
+    source,
+    links,
+    customFields: {
+      empresa: company,
+      cargo: title,
+      area,
+      localidadeDdd: formatDddLocation(ddd)
+    }
+  };
+};
+
+const recordsToContactPartials = (records: Array<Record<string, unknown>>, source: Contact["source"]) =>
+  records
+    .map((record) => recordToContactPartial(record, source))
+    .filter((contact) => contact.name || contact.emails?.length || contact.phones?.length);
+
+export const parseTabularContacts = (rows: unknown[][], source: Contact["source"] = "Excel"): Partial<Contact>[] => {
+  const [headerRow, ...bodyRows] = rows.filter((row) => row.some((cell) => toImportText(cell)));
+  if (!headerRow || !bodyRows.length) return [];
+  const headers = headerRow.map((cell) => toImportText(cell));
+  const records = bodyRows.map((row) =>
+    headers.reduce<Record<string, unknown>>((record, header, index) => {
+      if (header) record[header] = row[index] ?? "";
+      return record;
+    }, {})
+  );
+  return recordsToContactPartials(records, source);
+};
+
 export const initials = (name: string) =>
   name
     .split(" ")
@@ -329,33 +471,31 @@ export const buildOpportunityMatches = (contacts: Contact[]) =>
     .slice(0, 8);
 
 export const parseCsvContacts = (csv: string): Partial<Contact>[] => {
-  const rows = csv
-    .split(/\r?\n/)
-    .map((row) => row.trim())
-    .filter(Boolean);
-  if (rows.length < 2) return [];
-  const delimiter = rows[0].includes(";") ? ";" : ",";
-  const headers = rows[0].split(delimiter).map((header) => normalize(header).replace(/\s+/g, "_"));
-  return rows.slice(1).map((row) => {
-    const values = row.split(delimiter).map((value) => value.trim());
-    const record = headers.reduce<Record<string, string>>((acc, header, index) => {
-      acc[header] = values[index] ?? "";
-      return acc;
-    }, {});
-    const phones = splitList(record.telefone || record.phone || record.celular || "");
-    return {
-      name: record.nome || record.name || "Contato sem nome",
-      headline: record.cargo || record.headline || "",
-      description: record.descricao || record.description || "",
-      emails: splitList(record.email || record.emails || ""),
-      phones,
-      ddd: extractDdd(phones[0] ?? ""),
-      tags: splitList(record.tags || record.tag || ""),
-      currentDemand: record.demanda || record.current_demand || "",
-      problemSolves: record.resolve || record.problem_solves || "",
-      source: "CSV"
-    };
-  });
+  return parseTabularContacts(parseDelimitedRows(csv), "CSV");
+};
+
+export const parseJsonContacts = (input: string): Partial<Contact>[] => {
+  if (!input.trim()) return [];
+  const parsed = JSON.parse(input) as unknown;
+  const collection = Array.isArray(parsed)
+    ? parsed
+    : typeof parsed === "object" && parsed !== null
+      ? Object.entries(parsed as Record<string, unknown>).find(([key, value]) =>
+          ["contacts", "people", "participants", "pessoas", "membros", "inscritos"].includes(normalizeImportKey(key)) && Array.isArray(value)
+        )?.[1]
+      : [];
+  if (!Array.isArray(collection)) return [];
+  return recordsToContactPartials(
+    collection.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null && !Array.isArray(item)),
+    "JSON"
+  );
+};
+
+export const parseContactImportText = (input: string): Partial<Contact>[] => {
+  const text = input.trim();
+  if (!text) return [];
+  if (text.startsWith("[") || text.startsWith("{")) return parseJsonContacts(text);
+  return parseCsvContacts(text);
 };
 
 export const parseVcardContacts = (vcard: string): Partial<Contact>[] => {

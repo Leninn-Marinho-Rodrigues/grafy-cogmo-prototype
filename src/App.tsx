@@ -8,7 +8,6 @@ import {
   CircleDot,
   ContactRound,
   Database,
-  Download,
   Eye,
   Filter,
   Globe2,
@@ -39,7 +38,7 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
-import { applePreviewContactTemplates, googlePreviewContactTemplates, initialState } from "./data";
+import { initialState, seedContacts } from "./data";
 import {
   buildGraph,
   buildOpportunityMatches,
@@ -53,8 +52,9 @@ import {
   initials,
   makeAssistantAnswer,
   mergeContacts,
-  parseCsvContacts,
+  parseContactImportText,
   parseIcsCalendarContacts,
+  parseTabularContacts,
   parseVcardContacts,
   searchContacts,
   splitList,
@@ -65,7 +65,8 @@ import type { Contact, CustomField, GrafyState, GraphNode, LinkKind, ViewKey } f
 
 const STORAGE_KEY = "grafy-state-v2";
 const SESSION_KEY = "grafy-session-v2";
-const APP_SCHEMA_VERSION = "dual-landing-apple-import-2026-05-29";
+const APP_SCHEMA_VERSION = "real-data-ingestion-2026-05-29";
+const LEGACY_DEMO_CONTACT_IDS = new Set(seedContacts.map((contact) => contact.id));
 
 const navItems: Array<{ key: ViewKey; label: string; icon: typeof Home }> = [
   { key: "dashboard", label: "Início", icon: Home },
@@ -110,6 +111,21 @@ type GoogleTokenClient = {
   requestAccessToken: (options?: { prompt?: string }) => void;
 };
 
+type AppleSignInResponse = {
+  authorization?: {
+    code?: string;
+    id_token?: string;
+    state?: string;
+  };
+  user?: {
+    email?: string;
+    name?: {
+      firstName?: string;
+      lastName?: string;
+    };
+  };
+};
+
 declare global {
   interface Window {
     google?: {
@@ -124,6 +140,19 @@ declare global {
         };
       };
     };
+    AppleID?: {
+      auth?: {
+        init: (config: {
+          clientId: string;
+          scope: string;
+          redirectURI: string;
+          state?: string;
+          nonce?: string;
+          usePopup?: boolean;
+        }) => void;
+        signIn: () => Promise<AppleSignInResponse>;
+      };
+    };
   }
 }
 
@@ -133,6 +162,7 @@ const GOOGLE_IMPORT_SCOPES = [
 ].join(" ");
 
 let googleIdentityScriptPromise: Promise<void> | null = null;
+let appleIdentityScriptPromise: Promise<void> | null = null;
 
 const loadGoogleIdentityScript = () => {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
@@ -155,12 +185,34 @@ const loadGoogleIdentityScript = () => {
   return googleIdentityScriptPromise;
 };
 
+const loadAppleIdentityScript = () => {
+  if (window.AppleID?.auth) return Promise.resolve();
+  if (appleIdentityScriptPromise) return appleIdentityScriptPromise;
+  appleIdentityScriptPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[src="https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Não foi possível carregar Sign in with Apple.")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Não foi possível carregar Sign in with Apple."));
+    document.head.appendChild(script);
+  });
+  return appleIdentityScriptPromise;
+};
+
 type GooglePerson = {
   names?: Array<{ displayName?: string; givenName?: string; familyName?: string }>;
   emailAddresses?: Array<{ value?: string }>;
   phoneNumbers?: Array<{ value?: string }>;
   organizations?: Array<{ name?: string; title?: string }>;
   biographies?: Array<{ value?: string }>;
+  photos?: Array<{ url?: string; default?: boolean }>;
 };
 
 type GoogleCalendarEvent = {
@@ -182,6 +234,7 @@ const contactFromGooglePerson = (person: GooglePerson, now: string): Contact | n
     id: uid("ct"),
     name: name || emails[0] || phones[0] || "Contato Google",
     headline: unique([organization?.title, organization?.name]).join(" · "),
+    avatarUrl: person.photos?.find((photo) => photo.url && !photo.default)?.url ?? person.photos?.find((photo) => photo.url)?.url,
     description: person.biographies?.[0]?.value || "Contato importado do Google Contacts com consentimento do usuário.",
     tags: unique(["Google Contacts", ddd ? `DDD ${ddd}` : "", organization?.name ? "empresa" : ""].filter(Boolean)),
     phones,
@@ -245,16 +298,6 @@ const mergeContactsByEmailOrPhone = (contacts: Contact[]) => {
   });
 };
 
-const stampedTemplateContacts = (templates: Array<Omit<Contact, "id" | "createdAt" | "updatedAt">>) => {
-  const now = new Date().toISOString();
-  return templates.map((template) => ({
-    ...template,
-    id: uid("ct"),
-    createdAt: now,
-    updatedAt: now
-  }));
-};
-
 const contactFromImportedPartial = (
   partial: Partial<Contact>,
   options: {
@@ -296,13 +339,45 @@ const contactFromImportedPartial = (
   };
 };
 
+const readFileAsText = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error(`Não foi possível ler ${file.name}.`));
+    reader.readAsText(file);
+  });
+
+const getTextImportSource = (fileName: string, text: string): Extract<Contact["source"], "CSV" | "JSON"> =>
+  fileName.toLowerCase().endsWith(".json") || text.trim().startsWith("{") || text.trim().startsWith("[") ? "JSON" : "CSV";
+
+const parseContactsFromFile = async (file: File): Promise<{
+  contacts: Partial<Contact>[];
+  source: Extract<Contact["source"], "CSV" | "JSON" | "Excel">;
+  text?: string;
+}> => {
+  const lowerName = file.name.toLowerCase();
+  if (lowerName.endsWith(".xlsx") || lowerName.endsWith(".xls")) {
+    const { default: readXlsxFile } = await import("read-excel-file/browser");
+    const rows = await readXlsxFile(file);
+    return { contacts: parseTabularContacts(rows as unknown as unknown[][], "Excel"), source: "Excel" };
+  }
+
+  const text = await readFileAsText(file);
+  const source = getTextImportSource(file.name, text);
+  return {
+    contacts: parseContactImportText(text).map((contact) => ({ ...contact, source })),
+    source,
+    text
+  };
+};
+
 const fetchGoogleContactsAndCalendar = async (accessToken: string) => {
   const headers = { Authorization: `Bearer ${accessToken}` };
   const now = new Date().toISOString();
   const timeMin = new Date(Date.now() - 1000 * 60 * 60 * 24 * 90).toISOString();
   const timeMax = new Date(Date.now() + 1000 * 60 * 60 * 24 * 180).toISOString();
   const [peopleResponse, calendarResponse] = await Promise.all([
-    fetch("https://people.googleapis.com/v1/people/me/connections?pageSize=200&personFields=names,emailAddresses,phoneNumbers,organizations,biographies", { headers }),
+    fetch("https://people.googleapis.com/v1/people/me/connections?pageSize=200&personFields=names,emailAddresses,phoneNumbers,organizations,biographies,photos", { headers }),
     fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=80&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`, { headers })
   ]);
   if (!peopleResponse.ok) throw new Error(`Google Contacts retornou ${peopleResponse.status}.`);
@@ -340,23 +415,8 @@ function useStoredState<T>(key: string, fallback: T) {
 
 function hydrateState(state: GrafyState): GrafyState {
   const needsDemoDataRefresh = state.schemaVersion !== APP_SCHEMA_VERSION;
-  const currentContacts = state.contacts?.length ? state.contacts : initialState.contacts;
-  const contactsById = new Map(currentContacts.map((contact) => [contact.id, contact]));
-  const hydratedContacts = [
-    ...initialState.contacts.map((seedContact) => {
-      const currentContact = contactsById.get(seedContact.id);
-      if (!needsDemoDataRefresh || !currentContact) return currentContact ?? seedContact;
-      return {
-        ...seedContact,
-        ...currentContact,
-        tags: unique([...seedContact.tags, ...(currentContact.tags ?? [])]),
-        links: currentContact.links ?? seedContact.links,
-        groupIds: unique([...seedContact.groupIds, ...(currentContact.groupIds ?? [])]),
-        customFields: { ...seedContact.customFields, ...(currentContact.customFields ?? {}) }
-      };
-    }),
-    ...currentContacts.filter((contact) => !initialState.contacts.some((seedContact) => seedContact.id === contact.id))
-  ];
+  const hydratedContacts = (state.contacts ?? []).filter((contact) => !LEGACY_DEMO_CONTACT_IDS.has(contact.id));
+  const hydratedContactIds = new Set(hydratedContacts.map((contact) => contact.id));
   const currentGroups = state.groups?.length ? state.groups : initialState.groups;
   const groupsById = new Map(currentGroups.map((group) => [group.id, group]));
   const hydratedGroups = [
@@ -396,7 +456,7 @@ function hydrateState(state: GrafyState): GrafyState {
       ...group,
       color: group.color || groupColorOptions[index % groupColorOptions.length],
       tags: group.tags ?? [],
-      contactIds: group.contactIds ?? [],
+      contactIds: (group.contactIds ?? []).filter((contactId) => hydratedContactIds.has(contactId)),
       members: group.members ?? []
     })),
     customFields: [
@@ -838,16 +898,31 @@ function AppShell(props: AppShellProps) {
 }
 
 function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
-  const [email, setEmail] = useState("lenin@grafy.local");
+  const [email, setEmail] = useState("");
   const [status, setStatus] = useState("");
   const [googleImporting, setGoogleImporting] = useState(false);
+  const [appleIdentityImporting, setAppleIdentityImporting] = useState(false);
   const [appleVcardText, setAppleVcardText] = useState("");
   const [appleIcsText, setAppleIcsText] = useState("");
+  const [hubImportText, setHubImportText] = useState("");
+  const [hubFilePreview, setHubFilePreview] = useState<Partial<Contact>[] | null>(null);
+  const [hubFileName, setHubFileName] = useState("");
+  const [hubImportSource, setHubImportSource] = useState<Extract<Contact["source"], "CSV" | "JSON" | "Excel">>("CSV");
+  const [hubImporting, setHubImporting] = useState(false);
   const [landingMode, setLandingMode] = useState<LandingMode>(() => getLandingModeFromHash());
   const googleClientConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+  const appleClientConfigured = Boolean(import.meta.env.VITE_APPLE_SERVICE_ID && import.meta.env.VITE_APPLE_REDIRECT_URI);
   const appleVcardPreview = useMemo(() => parseVcardContacts(appleVcardText), [appleVcardText]);
   const appleCalendarPreview = useMemo(() => parseIcsCalendarContacts(appleIcsText), [appleIcsText]);
   const applePreviewCount = appleVcardPreview.length + appleCalendarPreview.length;
+  const hubTextPreview = useMemo(() => {
+    try {
+      return parseContactImportText(hubImportText);
+    } catch {
+      return [];
+    }
+  }, [hubImportText]);
+  const hubPreview = hubFilePreview ?? hubTextPreview;
   const landingCopy = {
     personal: {
       navLabel: "Empresários",
@@ -915,7 +990,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    onLogin(email || "usuario@grafy.local", [], "dashboard");
+    setStatus("Conecte Google, importe Apple vCard/.ics ou carregue a base do hub para abrir o workspace com dados reais.");
   };
 
   const buildAppleOnboardingContacts = () => [
@@ -947,19 +1022,17 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
   ) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setter(String(reader.result ?? ""));
-      setStatus(`${label} carregado. Revise o preview e entre importando os contatos.`);
-    };
-    reader.readAsText(file);
+    readFileAsText(file)
+      .then((text) => {
+        setter(text);
+        setStatus(`${label} carregado. Revise o preview e entre importando os contatos.`);
+      })
+      .catch((error) => setStatus(error instanceof Error ? error.message : `Falha ao ler ${label}.`));
   };
 
   const handleGoogleLogin = async () => {
     if (!googleClientConfigured) {
-      const contacts = stampedTemplateContacts(googlePreviewContactTemplates);
-      setStatus("Este deploy não tem VITE_GOOGLE_CLIENT_ID. Entrei com amostra Google para demonstrar o fluxo; em produção o botão abre OAuth real.");
-      onLogin(email || "usuario-google@grafy.local", contacts, "dashboard");
+      setStatus("Para importar contatos reais do Google, configure VITE_GOOGLE_CLIENT_ID no deploy e habilite People API + Calendar API no Google Cloud. Não vou criar contatos artificiais neste fluxo.");
       return;
     }
     setGoogleImporting(true);
@@ -978,6 +1051,11 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
           try {
             setStatus("Importando Google Contacts e Agenda autorizados...");
             const contacts = await fetchGoogleContactsAndCalendar(response.access_token);
+            if (!contacts.length) {
+              setStatus("Google autorizou, mas não retornou contatos/participantes com os campos permitidos.");
+              setGoogleImporting(false);
+              return;
+            }
             onLogin(email || "usuario-google@grafy.local", contacts, "dashboard");
           } catch (error) {
             setStatus(error instanceof Error ? error.message : "Falha ao importar dados do Google.");
@@ -1010,9 +1088,78 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
     onLogin(email || "usuario-apple@grafy.local", contacts, "dashboard");
   };
 
-  const handleAppleSampleLogin = () => {
-    const contacts = stampedTemplateContacts(applePreviewContactTemplates);
-    onLogin(email || "usuario-apple@grafy.local", contacts, "dashboard");
+  const handleAppleIdentityLogin = async () => {
+    if (!appleClientConfigured) {
+      setStatus("Para vincular Apple ID no web, configure VITE_APPLE_SERVICE_ID e VITE_APPLE_REDIRECT_URI. Contatos Apple entram por .vcf/.ics no PWA.");
+      return;
+    }
+    setAppleIdentityImporting(true);
+    try {
+      await loadAppleIdentityScript();
+      window.AppleID?.auth?.init({
+        clientId: String(import.meta.env.VITE_APPLE_SERVICE_ID),
+        scope: "name email",
+        redirectURI: String(import.meta.env.VITE_APPLE_REDIRECT_URI),
+        state: "grafy-apple-signin",
+        usePopup: true
+      });
+      const response = await window.AppleID?.auth?.signIn();
+      if (response?.user?.email) setEmail(response.user.email);
+      setStatus("Apple ID vinculado. No web, agora carregue .vcf/.ics para trazer contatos reais; acesso direto ao iCloud Contacts exige app nativo.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Não foi possível vincular Apple ID.");
+    } finally {
+      setAppleIdentityImporting(false);
+    }
+  };
+
+  const buildHubOnboardingContacts = () =>
+    hubPreview.map((partial) =>
+      contactFromImportedPartial(partial, {
+        fallbackName: "Pessoa da base do hub",
+        fallbackSource: (partial.source as Contact["source"] | undefined) ?? hubImportSource,
+        notes: "Importado no onboarding do hub/evento/empresa. Base compartilhada validada por arquivo.",
+        extraTags: ["hub", "evento", "base compartilhada"],
+        groupIds: ["grp_eventos"],
+        customFields: {
+          fonteHub: hubFileName || (hubImportSource === "JSON" ? "JSON colado" : "CSV colado"),
+          tipoBase: hubImportSource
+        }
+      })
+    );
+
+  const handleHubImportTextChange = (value: string) => {
+    setHubImportText(value);
+    setHubFilePreview(null);
+    setHubFileName("");
+    setHubImportSource(getTextImportSource("base", value));
+  };
+
+  const handleHubFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setHubImporting(true);
+    try {
+      const parsed = await parseContactsFromFile(file);
+      setHubImportSource(parsed.source);
+      setHubFileName(file.name);
+      setHubFilePreview(parsed.contacts);
+      setHubImportText(parsed.text ?? "");
+      setStatus(`${file.name} carregado com ${parsed.contacts.length} pessoa(s) reconhecida(s).`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Não foi possível ler a base do hub.");
+    } finally {
+      setHubImporting(false);
+    }
+  };
+
+  const handleHubWorkspaceLogin = () => {
+    const contacts = buildHubOnboardingContacts();
+    if (!contacts.length) {
+      setStatus("Carregue um Excel, CSV ou JSON com pessoas do hub/evento antes de criar o workspace.");
+      return;
+    }
+    onLogin(email || "hub@grafy.local", contacts, "groups");
   };
 
   return (
@@ -1097,74 +1244,116 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                 </div>
               </motion.div>
 
-              <form className="auth-card" onSubmit={submit}>
+              <form className="auth-card auth-ingestion-card" onSubmit={submit}>
                 <div className="auth-card-head">
                   <div>
-                    <h2>Monte sua rede no primeiro acesso</h2>
-                    <p>Conecte Google para importar contatos e agenda, ou carregue arquivos Apple antes de abrir o workspace.</p>
+                    <h2>{audienceMode === "personal" ? "Vincule sua conta e traga contatos reais" : "Carregue a base real do hub"}</h2>
+                    <p>
+                      {audienceMode === "personal"
+                        ? "O Grafy só fica útil quando nasce da sua agenda: Google Contacts/Agenda ou arquivos Apple exportados."
+                        : "Suba Excel, CSV ou JSON com participantes, membros, empresas e contatos do evento para gerar grafo e grupos."}
+                    </p>
                   </div>
                   <span className="status-dot live" />
                 </div>
-                <button className="google-button connector-first-button" type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
-                  <Globe2 size={18} />
-                  {googleImporting ? "Conectando Google..." : "Conectar Google e criar workspace"}
-                  <small>{googleClientConfigured ? "OAuth real" : "demo sem Client ID"}</small>
-                </button>
-                <div className="apple-onboarding">
-                  <div className="onboarding-source-card">
-                    <strong>Apple Contacts</strong>
-                    <small>Carregue o `.vcf` exportado do iCloud/Contatos.</small>
-                    <input
-                      className="file-input"
-                      type="file"
-                      accept=".vcf,text/vcard,text/x-vcard"
-                      onChange={(event) => handleTextFile(event, setAppleVcardText, "vCard Apple")}
-                    />
+
+                {audienceMode === "personal" ? (
+                  <>
+                    <button className="google-button connector-first-button" type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
+                      <Globe2 size={18} />
+                      {googleImporting ? "Conectando Google..." : "Entrar com Google e importar contatos reais"}
+                      <small>{googleClientConfigured ? "People API + Agenda" : "configure Client ID"}</small>
+                    </button>
+                    <button className="secondary-button apple-id-button" type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
+                      <UserRound size={17} />
+                      {appleIdentityImporting ? "Vinculando Apple..." : "Vincular Apple ID"}
+                      <small>{appleClientConfigured ? "Sign in with Apple" : "Service ID pendente"}</small>
+                    </button>
+                    <div className="apple-onboarding">
+                      <div className="onboarding-source-card">
+                        <strong>Apple Contacts</strong>
+                        <small>Carregue o .vcf exportado do iCloud/Contatos.</small>
+                        <input
+                          className="file-input"
+                          type="file"
+                          accept=".vcf,text/vcard,text/x-vcard"
+                          onChange={(event) => handleTextFile(event, setAppleVcardText, "vCard Apple")}
+                        />
+                      </div>
+                      <div className="onboarding-source-card">
+                        <strong>Apple Agenda</strong>
+                        <small>Carregue .ics para transformar participantes em contexto.</small>
+                        <input
+                          className="file-input"
+                          type="file"
+                          accept=".ics,text/calendar"
+                          onChange={(event) => handleTextFile(event, setAppleIcsText, "Agenda Apple")}
+                        />
+                      </div>
+                    </div>
+                    <div className="onboarding-preview-row">
+                      <span>{applePreviewCount ? `${applePreviewCount} contato(s) Apple prontos` : "Apple no web: identidade por Apple ID; contatos por .vcf/.ics"}</span>
+                      <button className="primary-button compact" type="button" onClick={handleAppleLogin} disabled={!applePreviewCount}>
+                        <Upload size={16} />
+                        Entrar importando Apple
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="hub-ingestion-panel">
+                    <label className="hub-file-drop">
+                      <Database size={20} />
+                      <span>
+                        <strong>Excel, CSV ou JSON da base</strong>
+                        <small>Use colunas como nome, email, telefone, empresa, cargo, área, tags, demanda, resolve e LinkedIn.</small>
+                      </span>
+                      <input type="file" accept=".xlsx,.xls,.csv,.json,text/csv,application/json" onChange={handleHubFile} />
+                    </label>
+                    <label>
+                      Colar CSV ou JSON
+                      <textarea
+                        className="csv-box compact-ingestion-box"
+                        value={hubImportText}
+                        onChange={(event) => handleHubImportTextChange(event.target.value)}
+                        placeholder="nome,email,telefone,empresa,cargo,area,tags,demanda,resolve,linkedin"
+                      />
+                    </label>
+                    <div className="data-preview-summary">
+                      <span>{hubFileName || `${hubImportSource} colado`}</span>
+                      <strong>{hubPreview.length} pessoa(s) reconhecida(s)</strong>
+                      <small>{hubPreview.slice(0, 3).map((contact) => contact.name).filter(Boolean).join(" · ") || "Carregue uma base para ver o preview."}</small>
+                    </div>
+                    <button className="primary-button" type="button" onClick={handleHubWorkspaceLogin} disabled={hubImporting || !hubPreview.length}>
+                      <Users size={18} />
+                      Criar workspace do hub com {hubPreview.length || "dados reais"}
+                    </button>
                   </div>
-                  <div className="onboarding-source-card">
-                    <strong>Apple Agenda</strong>
-                    <small>Carregue `.ics` para transformar participantes em contexto.</small>
-                    <input
-                      className="file-input"
-                      type="file"
-                      accept=".ics,text/calendar"
-                      onChange={(event) => handleTextFile(event, setAppleIcsText, "Agenda Apple")}
-                    />
-                  </div>
-                </div>
-                <div className="onboarding-preview-row">
-                  <span>{applePreviewCount ? `${applePreviewCount} contato(s) Apple prontos` : "Apple no web usa arquivos .vcf/.ics"}</span>
-                  <button className="secondary-button compact" type="button" onClick={handleAppleLogin} disabled={!applePreviewCount}>
-                    <Upload size={16} />
-                    Entrar importando Apple
-                  </button>
-                  <button className="secondary-button compact" type="button" onClick={handleAppleSampleLogin}>
-                    <CalendarClock size={16} />
-                    Usar amostra Apple
-                  </button>
-                </div>
+                )}
+
                 <div className="auth-divider"><span>identificação do workspace</span></div>
                 <label>
-                  Email do usuário
+                  Email do usuário ou administrador
                   <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="voce@empresa.com" />
                 </label>
-                <button className="primary-button" type="submit">
+                <button className="secondary-button" type="submit">
                   <KeyRound size={18} />
-                  Entrar sem importar agora
-                </button>
-                <button className="secondary-button" type="button" onClick={() => onLogin(email || "usuario@grafy.local", stampedTemplateContacts(googlePreviewContactTemplates), "dashboard")}>
-                  <Mail size={18} />
-                  Entrar com dados de demonstração
+                  Ver exigências antes de entrar
                 </button>
                 <p className="prototype-note">
-                  Ambiente demonstrativo: dados ficam neste navegador. Em produção, tokens Google ficam no backend e Apple direto exige app nativo.
+                  Dados ficam neste navegador. Google usa OAuth/People API quando configurado; Apple no PWA usa Sign in with Apple para identidade e .vcf/.ics para contatos.
                 </p>
                 {status && <p className="auth-status">{status}</p>}
               </form>
             </div>
           </motion.section>
 
-          <SpecificLandingPage onModeChange={changeLandingMode} onLogin={() => onLogin(email || "usuario@grafy.local", [], "dashboard")} />
+          <SpecificLandingPage
+            onModeChange={changeLandingMode}
+            onLogin={() => {
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              setStatus("Use o cartão de entrada acima para abrir o Grafy com contatos reais, não com uma base artificial.");
+            }}
+          />
         </>
       )}
     </div>
@@ -1804,112 +1993,46 @@ function ContactForm({ onSave, onCancel }: { onSave: (contact: Contact) => void;
 }
 
 function ImportView({ addContacts, state, setView }: AppShellProps) {
-  const exampleCsv = `nome,email,telefone,tags,descricao,demanda,resolve
-Paula Andrade,paula@pa.com,85999990000,"educação,IA,treinamento,B2B","Treinadora corporativa em IA","Busca empresas para programas de capacitação","Treinamentos de IA aplicada"
-Diego Martins,diego@ops.com,11933334444,"operações,logística,PME,consultoria","Consultor de operações","Procura PMEs com gargalos operacionais","Melhora processos e indicadores"`;
-  const exampleVcard = `BEGIN:VCARD
-VERSION:3.0
-FN:Beatriz Lima
-ORG:Beta Advisors
-TITLE:Consultora de parcerias
-TEL:+55 11 98888-7777
-EMAIL:beatriz@betaadvisors.com
-NOTE:Contato exportado do Apple Contacts. Busca empresas B2B para parcerias comerciais.
-END:VCARD
-BEGIN:VCARD
-VERSION:3.0
-FN:Eduardo Pires
-ORG:Conecta Sul Eventos
-TITLE:Curador de comunidades
-TEL:+55 41 97777-2222
-EMAIL:eduardo@conectasul.events
-NOTE:Contato vindo de iCloud/vCard. Organiza encontros executivos e rodadas de negócios.
-END:VCARD`;
-  const exampleIcs = `BEGIN:VCALENDAR
-VERSION:2.0
-PRODID:-//Grafy//Apple Agenda Demo//PT-BR
-BEGIN:VEVENT
-UID:grafy-apple-agenda-001
-DTSTART:20260610T140000Z
-DTEND:20260610T153000Z
-SUMMARY:Rodada de negócios B2B
-LOCATION:São Paulo/SP
-ORGANIZER;CN=Marina Hub:mailto:marina@hubexample.com
-ATTENDEE;CN=Cláudia Ramos;ROLE=REQ-PARTICIPANT:mailto:claudia@ramospme.com
-ATTENDEE;CN=Igor Farias;ROLE=REQ-PARTICIPANT:mailto:igor@fariasgrowth.com
-END:VEVENT
-BEGIN:VEVENT
-UID:grafy-apple-agenda-002
-DTSTART:20260612T180000Z
-DTEND:20260612T190000Z
-SUMMARY:Mentoria para founders
-LOCATION:Curitiba/PR
-ORGANIZER;CN=Rodrigo Salles:mailto:rodrigo@sallesnetwork.com
-ATTENDEE;CN=Bianca Prado;ROLE=REQ-PARTICIPANT:mailto:bianca@pradotech.com
-END:VEVENT
-END:VCALENDAR`;
-  const [csv, setCsv] = useState(exampleCsv);
+  const [importText, setImportText] = useState("");
+  const [filePreview, setFilePreview] = useState<Partial<Contact>[] | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [importSource, setImportSource] = useState<Extract<Contact["source"], "CSV" | "JSON" | "Excel">>("CSV");
+  const [fileImporting, setFileImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState("");
   const [googleStatus, setGoogleStatus] = useState("");
   const [googleImporting, setGoogleImporting] = useState(false);
   const [appleStatus, setAppleStatus] = useState("");
-  const [vcardText, setVcardText] = useState(exampleVcard);
-  const [icsText, setIcsText] = useState(exampleIcs);
+  const [vcardText, setVcardText] = useState("");
+  const [icsText, setIcsText] = useState("");
   const [linkedinQuery, setLinkedinQuery] = useState("");
-  const preview = useMemo(() => parseCsvContacts(csv), [csv]);
+  const textPreview = useMemo(() => {
+    try {
+      return parseContactImportText(importText);
+    } catch {
+      return [];
+    }
+  }, [importText]);
+  const preview = filePreview ?? textPreview;
   const applePreview = useMemo(() => parseVcardContacts(vcardText), [vcardText]);
   const appleCalendarPreview = useMemo(() => parseIcsCalendarContacts(icsText), [icsText]);
   const googleClientConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
 
   const importContacts = () => {
-    const now = new Date().toISOString();
-    const contacts: Contact[] = preview.map((partial) => {
-      const phones = partial.phones ?? [];
-      return {
-        id: uid("ct"),
-        name: partial.name ?? "Contato sem nome",
-        headline: partial.headline ?? "",
-        description: partial.description ?? "",
-        tags: partial.tags ?? [],
-        phones,
-        emails: partial.emails ?? [],
-        ddd: partial.ddd || extractDdd(phones[0] ?? ""),
-        source: "CSV",
-        currentDemand: partial.currentDemand ?? "",
-        problemSolves: partial.problemSolves ?? "",
-        notes: "Importado via CSV no Grafy.",
-        links: [],
-        isPublic: false,
-        groupIds: [],
-        customFields: {},
-        createdAt: now,
-        updatedAt: now
-      };
-    });
+    const contacts: Contact[] = preview.map((partial) =>
+      contactFromImportedPartial(partial, {
+        fallbackName: "Pessoa importada",
+        fallbackSource: (partial.source as Contact["source"] | undefined) ?? importSource,
+        notes: "Importado por arquivo real no Grafy.",
+        extraTags: [importSource === "Excel" ? "Excel" : importSource === "JSON" ? "JSON" : "CSV"],
+        groupIds: ["grp_eventos"],
+        customFields: {
+          fonteArquivo: fileName || `${importSource} colado`,
+          tipoBase: importSource
+        }
+      })
+    );
     addContacts(contacts);
-  };
-
-  const importGoogleSample = () => {
-    const now = new Date().toISOString();
-    const contacts: Contact[] = googlePreviewContactTemplates.map((template) => ({
-      ...template,
-      id: uid("ct"),
-      createdAt: now,
-      updatedAt: now
-    }));
-    addContacts(contacts);
-    setGoogleStatus("Amostra Google + Agenda importada. Abra o grafo para ver fontes, DDDs, eventos, grupos e matches novos.");
-  };
-
-  const importAppleSample = () => {
-    const now = new Date().toISOString();
-    const contacts: Contact[] = applePreviewContactTemplates.map((template) => ({
-      ...template,
-      id: uid("ct"),
-      createdAt: now,
-      updatedAt: now
-    }));
-    addContacts(contacts);
-    setAppleStatus("Amostra Apple importada. Ela inclui Apple Contacts e Apple Calendar para validar fonte, DDD, grupo e grafo.");
+    setImportStatus(`${contacts.length} pessoa(s) importada(s). O grafo já pode usar DDD, tags, cargos, áreas e grupos.`);
   };
 
   const importAppleVcard = () => {
@@ -1947,9 +2070,12 @@ END:VCALENDAR`;
   const handleVcardFile = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setVcardText(String(reader.result ?? ""));
-    reader.readAsText(file);
+    readFileAsText(file)
+      .then((text) => {
+        setVcardText(text);
+        setAppleStatus(`${file.name} carregado para preview de Apple Contacts.`);
+      })
+      .catch((error) => setAppleStatus(error instanceof Error ? error.message : "Falha ao ler vCard Apple."));
   };
 
   const importAppleCalendar = () => {
@@ -1984,14 +2110,17 @@ END:VCALENDAR`;
   const handleIcsFile = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setIcsText(String(reader.result ?? ""));
-    reader.readAsText(file);
+    readFileAsText(file)
+      .then((text) => {
+        setIcsText(text);
+        setAppleStatus(`${file.name} carregado para preview de Apple Agenda.`);
+      })
+      .catch((error) => setAppleStatus(error instanceof Error ? error.message : "Falha ao ler Apple Agenda."));
   };
 
   const connectGoogle = async () => {
     if (!googleClientConfigured) {
-      setGoogleStatus("Google ainda não está ativo neste deploy. A arquitetura correta é Supabase Auth + OAuth incremental + Edge Function para People API e Calendar API. Use a amostra abaixo para validar a experiência.");
+      setGoogleStatus("Google ainda não está ativo neste deploy. Configure VITE_GOOGLE_CLIENT_ID e habilite People API + Calendar API para importar dados reais. Este fluxo não cria amostras artificiais.");
       return;
     }
     setGoogleImporting(true);
@@ -2010,6 +2139,10 @@ END:VCALENDAR`;
           try {
             setGoogleStatus("Lendo Google Contacts e Agenda autorizados...");
             const contacts = await fetchGoogleContactsAndCalendar(response.access_token);
+            if (!contacts.length) {
+              setGoogleStatus("Google autorizou, mas não retornou contatos/participantes com os campos permitidos.");
+              return;
+            }
             addContacts(contacts);
             setGoogleStatus(`${contacts.length} contato(s)/participante(s) importado(s) via Google Contacts + Agenda.`);
           } catch (error) {
@@ -2035,6 +2168,31 @@ END:VCALENDAR`;
     }
   };
 
+  const handleImportTextChange = (value: string) => {
+    setImportText(value);
+    setFilePreview(null);
+    setFileName("");
+    setImportSource(getTextImportSource("base", value));
+  };
+
+  const handleImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setFileImporting(true);
+    try {
+      const parsed = await parseContactsFromFile(file);
+      setImportSource(parsed.source);
+      setFileName(file.name);
+      setFilePreview(parsed.contacts);
+      setImportText(parsed.text ?? "");
+      setImportStatus(`${file.name} carregado com ${parsed.contacts.length} pessoa(s) reconhecida(s).`);
+    } catch (error) {
+      setImportStatus(error instanceof Error ? error.message : "Não foi possível ler a base enviada.");
+    } finally {
+      setFileImporting(false);
+    }
+  };
+
   const openLinkedinResearch = (name: string) => {
     const query = `${name} LinkedIn cargo empresa`;
     window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, "_blank", "noopener,noreferrer");
@@ -2045,34 +2203,54 @@ END:VCALENDAR`;
   return (
     <div className="screen import-screen">
       <div className="import-grid">
-        <section className="import-card">
-          <h2>Importação CSV</h2>
-          <p>Mapeamento automático para nome, email, telefone, tags, descrição, demanda e problema resolvido.</p>
-          <textarea className="csv-box" value={csv} onChange={(event) => setCsv(event.target.value)} />
+        <section className="import-card data-import-card">
+          <h2>Importar base real</h2>
+          <p>Excel, CSV ou JSON com nome, email, telefone, empresa, cargo, área, tags, demanda, resolve e LinkedIn.</p>
+          <label className="hub-file-drop">
+            <Database size={20} />
+            <span>
+              <strong>Carregar arquivo</strong>
+              <small>.xlsx, .xls, .csv ou .json exportado do hub, evento, CRM ou planilha da empresa.</small>
+            </span>
+            <input type="file" accept=".xlsx,.xls,.csv,.json,text/csv,application/json" onChange={handleImportFile} />
+          </label>
+          <label>
+            Colar CSV ou JSON
+            <textarea
+              className="csv-box"
+              value={importText}
+              onChange={(event) => handleImportTextChange(event.target.value)}
+              placeholder="nome,email,telefone,empresa,cargo,area,tags,demanda,resolve,linkedin"
+            />
+          </label>
+          {importStatus && <p className="integration-note">{importStatus}</p>}
           <div className="button-row">
-            <button className="secondary-button" onClick={() => setCsv(exampleCsv)}>
-              <Download size={17} />
-              Usar exemplo
-            </button>
-            <button className="primary-button" onClick={importContacts} disabled={!preview.length}>
+            <button className="primary-button" onClick={importContacts} disabled={fileImporting || !preview.length}>
               <Upload size={17} />
-              Importar {preview.length}
+              Importar {preview.length || "base real"}
             </button>
           </div>
         </section>
 
         <section className="import-card">
-          <h2>Preview</h2>
+          <h2>Preview normalizado</h2>
+          <div className="data-preview-summary">
+            <span>{fileName || `${importSource} colado`}</span>
+            <strong>{preview.length} pessoa(s) reconhecida(s)</strong>
+            <small>O Grafy calcula DDD, fonte, tags e campos de empresa/cargo/área antes de gravar.</small>
+          </div>
           <div className="preview-list">
-            {preview.map((contact, index) => (
+            {preview.length ? preview.slice(0, 8).map((contact, index) => (
               <div key={`${contact.name}-${index}`} className="preview-row">
                 <span className="avatar small">{initials(contact.name ?? "?")}</span>
                 <div>
                   <strong>{contact.name}</strong>
-                  <span>{contact.emails?.[0]} · DDD {contact.ddd || "?"}</span>
+                  <span>{contact.emails?.[0] || contact.phones?.[0] || "sem contato"} · {formatDddLocation(contact.ddd)}</span>
                 </div>
               </div>
-            ))}
+            )) : (
+              <div className="empty-preview">Nenhum contato carregado ainda. Suba uma base real para montar o grafo.</div>
+            )}
           </div>
         </section>
 
@@ -2099,31 +2277,15 @@ END:VCALENDAR`;
               </div>
             ))}
           </div>
-          <div className="google-preview-list">
-            {googlePreviewContactTemplates.map((contact) => {
-              const alreadyImported = state.contacts.some((item) =>
-                item.emails.some((email) => contact.emails.includes(email))
-              );
-              return (
-                <div key={contact.emails[0]} className={alreadyImported ? "google-preview-row imported" : "google-preview-row"}>
-                  <span className="avatar small">{initials(contact.name)}</span>
-                  <div>
-                    <strong>{contact.name}</strong>
-                    <small>{contact.source} · {formatDddLocation(contact.ddd)}</small>
-                  </div>
-                  {alreadyImported && <em>já importado</em>}
-                </div>
-              );
-            })}
+          <div className="connector-proof-list">
+            <span><Check size={15} /> People API: nomes, emails, telefones, empresas e cargos autorizados</span>
+            <span><Check size={15} /> Calendar API: participantes, eventos, datas e locais autorizados</span>
+            <span><Check size={15} /> Preview e deduplicação antes de merge em produção</span>
           </div>
           <div className="button-row">
             <button className="secondary-button compact" onClick={connectGoogle} disabled={googleImporting}>
               <Globe2 size={16} />
-              {googleClientConfigured ? "Conectar Google real" : "Testar OAuth"}
-            </button>
-            <button className="primary-button compact" onClick={importGoogleSample}>
-              <CalendarClock size={16} />
-              Importar amostra Google + Agenda
+              {googleClientConfigured ? "Conectar Google real" : "Configurar Client ID"}
             </button>
           </div>
           <span className={googleClientConfigured ? "status-pill live" : "status-pill"}>{googleClientConfigured ? "client id detectado" : "não configurado"}</span>
@@ -2199,10 +2361,6 @@ END:VCALENDAR`;
             </div>
           </div>
           <div className="button-row">
-            <button className="secondary-button compact" onClick={importAppleSample}>
-              <CalendarClock size={16} />
-              Importar amostra Apple
-            </button>
             <button className="primary-button compact" onClick={importAppleVcard} disabled={!applePreview.length}>
               <Upload size={16} />
               Importar vCard ({applePreview.length})
@@ -2269,7 +2427,7 @@ function IntegrationsView({ state, setView }: AppShellProps) {
     {
       name: "Google Contacts",
       icon: Globe2,
-      status: googleClientConfigured ? "OAuth quase pronto" : "Precisa client id",
+      status: googleClientConfigured ? "OAuth real disponível" : "Precisa Client ID",
       tone: googleClientConfigured ? "live" : "",
       description:
         "Fonte principal do comprador B2C: contatos salvos pelo usuário com consentimento, People API e backend seguro para tokens.",
@@ -2281,19 +2439,19 @@ function IntegrationsView({ state, setView }: AppShellProps) {
     {
       name: "Google Calendar",
       icon: CalendarClock,
-      status: "Agenda autorizada",
+      status: googleClientConfigured ? "Agenda autorizável" : "Precisa Client ID",
       tone: "attention",
       description:
         "Lê eventos e participantes autorizados para entender encontros, reuniões, hubs e follow-ups sem invadir dados privados.",
       data: ["eventos", "participantes", "organizador", "data", "local"],
       graph: ["participou de", "conhecido em", "grupo/evento", "follow-up"],
-      action: "Ver amostra",
+      action: "Abrir importação",
       url: "internal"
     },
     {
       name: "Apple Contacts",
       icon: ContactRound,
-      status: "vCard no web",
+      status: "Apple ID + vCard",
       tone: "attention",
       description:
         "No protótipo web, importa .vcf exportado do iCloud/Contatos. Em app nativo, usa Contacts framework com permissão do usuário.",
@@ -2305,13 +2463,13 @@ function IntegrationsView({ state, setView }: AppShellProps) {
     {
       name: "Apple Calendar",
       icon: CalendarClock,
-      status: "EventKit futuro",
+      status: "ICS no web",
       tone: "attention",
       description:
-        "Para app nativo, usa EventKit para eventos e participantes autorizados. No web, fica como amostra e importação por arquivo.",
+        "Para app nativo, usa EventKit para eventos e participantes autorizados. No web, importa participantes por arquivo .ics.",
       data: ["eventos", "participantes", "data", "local", "origem"],
       graph: ["participou de", "conhecido em", "grupo/evento", "follow-up"],
-      action: "Ver amostra Apple",
+      action: "Importar .ics",
       url: "internal"
     },
     {
@@ -2348,6 +2506,18 @@ function IntegrationsView({ state, setView }: AppShellProps) {
       data: ["contacts", "groups", "tags", "merge_suggestions"],
       graph: ["graph_edges", "custom_fields", "import_jobs"],
       action: "Ver README",
+      url: "internal"
+    },
+    {
+      name: "Excel / JSON para hubs",
+      icon: Upload,
+      status: "Ativo no MVP",
+      tone: "live",
+      description:
+        "Caminho principal para hubs, eventos e empresas subirem participantes reais por planilha ou JSON antes de gerar grafo e grupos.",
+      data: ["nome", "empresa", "cargo", "área", "demanda", "tags"],
+      graph: ["pertence a grupo", "tem área", "tem cargo", "potencial match"],
+      action: "Abrir importação",
       url: "internal"
     }
   ];
@@ -3179,8 +3349,8 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
     {
       name: "Google Contacts",
       icon: Globe2,
-      status: "OAuth pendente",
-      tone: "attention",
+      status: import.meta.env.VITE_GOOGLE_CLIENT_ID ? "OAuth disponível" : "Client ID pendente",
+      tone: import.meta.env.VITE_GOOGLE_CLIENT_ID ? "live" : "attention",
       body: "Login Google + People API para puxar nome, sobrenome, email, telefone e foto salvos pelo usuário.",
       action: "Preparar Google OAuth",
       data: ["nome", "email", "telefone", "foto", "DDD"]
@@ -3262,9 +3432,9 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
       icon: Database,
       status: "Preparado",
       tone: "live",
-      body: "Importação por arquivo e contrato base para evoluir integrações corporativas, webhooks e documentação Swagger.",
+      body: "Importação por Excel, CSV, JSON e contrato base para evoluir integrações corporativas, webhooks e documentação Swagger.",
       action: "Revisar contrato",
-      data: ["CSV", "preview", "merge", "docs"]
+      data: ["Excel", "CSV", "JSON", "preview", "merge", "docs"]
     }
   ];
 

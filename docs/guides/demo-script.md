@@ -17,9 +17,9 @@ Explique em uma frase:
 Avisos importantes:
 
 - É um protótipo funcional.
-- O login atual é demonstrativo.
+- O login atual ainda é local no protótipo, mas a entrada principal exige conectar/importar dados reais.
 - Os dados ficam no navegador da pessoa.
-- Integrações reais com Google, Apple nativo, LinkedIn, Meetup e Supabase entram na próxima fase.
+- Supabase persistente, Apple nativo, LinkedIn e Meetup entram na próxima fase.
 
 ## Demo de 5 minutos
 
@@ -38,17 +38,17 @@ Mostre a tela inicial e comente:
 
 Mostre o primeiro card e escolha um caminho:
 
-- **Conectar Google e criar workspace:** tenta OAuth real quando `VITE_GOOGLE_CLIENT_ID` existe; sem credencial, usa amostra demonstrativa.
-- **Apple .vcf/.ics:** carrega contatos do Apple Contacts e participantes da Apple Agenda no web.
-- **Entrar com dados de demonstração:** abre o app sem conta real para apresentação rápida.
+- **Entrar com Google e importar contatos reais:** tenta OAuth real quando `VITE_GOOGLE_CLIENT_ID` existe; sem credencial, mostra a pendência sem injetar amostras.
+- **Vincular Apple ID + Apple .vcf/.ics:** Apple ID resolve identidade; contatos e agenda entram por arquivos exportados no web.
+- **Hub/evento/empresa:** carrega Excel, CSV ou JSON com participantes antes de abrir o workspace.
 
 Comente que cada pessoa pode testar sem criar conta real e que autenticação persistente entra com Supabase Auth.
 
 Abra **Importar** e demonstre:
 
-- **Google Data Hub:** repete o conector para Contacts + Agenda e permite validar o fluxo depois do onboarding.
-- **Apple Contacts + Calendar:** importa amostra Apple, `.vcf` do iCloud/Contatos ou `.ics` da Apple Agenda.
-- **CSV:** mantém o caminho simples para bases corporativas e testes rápidos.
+- **Google Data Hub:** repete o conector para Contacts + Agenda e deixa claro quando falta Client ID.
+- **Apple Contacts + Calendar:** importa `.vcf` do iCloud/Contatos ou `.ics` da Apple Agenda.
+- **Excel/CSV/JSON:** caminho principal para bases corporativas, hubs e eventos.
 
 ### 3. Dashboard
 
@@ -135,7 +135,7 @@ Na aba **Ajustes**, use **Apagar conta de teste**. Isso limpa o workspace salvo 
 
 ### Já puxa contatos reais do Google?
 
-Sim, se o deploy for gerado com `VITE_GOOGLE_CLIENT_ID` válido e origem autorizada no Google Cloud. Sem essa variável, o protótipo mantém amostras demonstrativas. Em produção, o ideal é mover tokens para backend/Edge Function.
+Sim, se o deploy for gerado com `VITE_GOOGLE_CLIENT_ID` válido e origem autorizada no Google Cloud. Sem essa variável, o protótipo mostra a configuração pendente e não injeta contatos artificiais. Em produção, o ideal é mover tokens para backend/Edge Function.
 
 ### Já puxa Apple Contacts?
 
