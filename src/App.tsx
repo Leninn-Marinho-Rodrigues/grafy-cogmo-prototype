@@ -200,6 +200,22 @@ type AppleSignInResponse = {
   };
 };
 
+type GoogleUserProfile = {
+  email?: string;
+  name?: string;
+  picture?: string;
+};
+
+type GoogleNetworkImport = {
+  contacts: Contact[];
+  profile: GoogleUserProfile;
+  stats: {
+    peopleContacts: number;
+    calendarContacts: number;
+    totalBeforeMerge: number;
+  };
+};
+
 declare global {
   interface Window {
     google?: {
@@ -230,9 +246,17 @@ declare global {
   }
 }
 
+const envScope = (value: unknown, fallback: string) => {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized || fallback;
+};
+
 const GOOGLE_IMPORT_SCOPES = [
-  "https://www.googleapis.com/auth/contacts.readonly",
-  "https://www.googleapis.com/auth/calendar.readonly"
+  "openid",
+  "email",
+  "profile",
+  envScope(import.meta.env.VITE_GOOGLE_CONTACTS_SCOPE, "https://www.googleapis.com/auth/contacts.readonly"),
+  envScope(import.meta.env.VITE_GOOGLE_CALENDAR_SCOPE, "https://www.googleapis.com/auth/calendar.readonly")
 ].join(" ");
 
 let googleIdentityScriptPromise: Promise<void> | null = null;
@@ -363,13 +387,28 @@ const contactFromGoogleAttendee = (event: GoogleCalendarEvent, attendee: NonNull
 };
 
 const mergeContactsByEmailOrPhone = (contacts: Contact[]) => {
-  const seen = new Set<string>();
-  return contacts.filter((contact) => {
-    const keys = [...contact.emails.map((email) => `email:${email.toLowerCase()}`), ...contact.phones.map((phone) => `phone:${phone.replace(/\D/g, "")}`)].filter((key) => !key.endsWith(":"));
-    const duplicate = keys.some((key) => seen.has(key));
-    keys.forEach((key) => seen.add(key));
-    return !duplicate;
+  const merged: Contact[] = [];
+  const indexByKey = new Map<string, number>();
+  const getKeys = (contact: Contact) =>
+    [
+      ...contact.emails.map((email) => `email:${email.toLowerCase().trim()}`),
+      ...contact.phones.map((phone) => `phone:${phone.replace(/\D/g, "")}`)
+    ].filter((key) => !key.endsWith(":"));
+
+  contacts.forEach((contact) => {
+    const keys = getKeys(contact);
+    const existingIndex = keys.map((key) => indexByKey.get(key)).find((index): index is number => typeof index === "number");
+    if (typeof existingIndex === "number") {
+      merged[existingIndex] = mergeContacts(merged[existingIndex], contact);
+      getKeys(merged[existingIndex]).forEach((key) => indexByKey.set(key, existingIndex));
+      return;
+    }
+
+    const nextIndex = merged.push(contact) - 1;
+    keys.forEach((key) => indexByKey.set(key, nextIndex));
   });
+
+  return merged;
 };
 
 const contactFromImportedPartial = (
@@ -445,28 +484,128 @@ const parseContactsFromFile = async (file: File): Promise<{
   };
 };
 
-const fetchGoogleContactsAndCalendar = async (accessToken: string) => {
+const fetchGoogleJson = async <T,>(url: string, accessToken: string, label: string): Promise<T> => {
   const headers = { Authorization: `Bearer ${accessToken}` };
-  const now = new Date().toISOString();
+  const response = await fetch(url, { headers });
+  const text = await response.text();
+  let data: unknown = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  if (!response.ok) {
+    const message =
+      typeof data === "object" &&
+      data !== null &&
+      "error" in data &&
+      typeof (data as { error?: { message?: string } }).error?.message === "string"
+        ? (data as { error: { message: string } }).error.message
+        : text;
+    throw new Error(`${label} retornou ${response.status}${message ? `: ${message}` : "."}`);
+  }
+  return data as T;
+};
+
+const fetchGoogleUserProfile = async (accessToken: string): Promise<GoogleUserProfile> => {
+  try {
+    const userInfo = await fetchGoogleJson<{ email?: string; name?: string; picture?: string }>(
+      "https://www.googleapis.com/oauth2/v3/userinfo",
+      accessToken,
+      "Google perfil"
+    );
+    return {
+      email: userInfo.email,
+      name: userInfo.name,
+      picture: userInfo.picture
+    };
+  } catch {
+    const person = await fetchGoogleJson<GooglePerson>(
+      "https://people.googleapis.com/v1/people/me?personFields=names,emailAddresses,photos",
+      accessToken,
+      "Google perfil"
+    );
+    return {
+      email: person.emailAddresses?.[0]?.value,
+      name: person.names?.[0]?.displayName,
+      picture: person.photos?.find((photo) => photo.url && !photo.default)?.url ?? person.photos?.[0]?.url
+    };
+  }
+};
+
+const fetchGooglePeopleContacts = async (accessToken: string, now: string) => {
+  const contacts: Contact[] = [];
+  let pageToken = "";
+  do {
+    const params = new URLSearchParams({
+      pageSize: "1000",
+      personFields: "names,emailAddresses,phoneNumbers,organizations,biographies,photos",
+      sortOrder: "FIRST_NAME_ASCENDING"
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+    const data = await fetchGoogleJson<{ connections?: GooglePerson[]; nextPageToken?: string }>(
+      `https://people.googleapis.com/v1/people/me/connections?${params.toString()}`,
+      accessToken,
+      "Google Contacts"
+    );
+    contacts.push(
+      ...(data.connections ?? [])
+        .map((person) => contactFromGooglePerson(person, now))
+        .filter((contact): contact is Contact => Boolean(contact))
+    );
+    pageToken = data.nextPageToken ?? "";
+  } while (pageToken);
+  return contacts;
+};
+
+const fetchGoogleCalendarContacts = async (accessToken: string, now: string) => {
+  const contacts: Contact[] = [];
   const timeMin = new Date(Date.now() - 1000 * 60 * 60 * 24 * 90).toISOString();
   const timeMax = new Date(Date.now() + 1000 * 60 * 60 * 24 * 180).toISOString();
-  const [peopleResponse, calendarResponse] = await Promise.all([
-    fetch("https://people.googleapis.com/v1/people/me/connections?pageSize=200&personFields=names,emailAddresses,phoneNumbers,organizations,biographies,photos", { headers }),
-    fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=80&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`, { headers })
+  let pageToken = "";
+  do {
+    const params = new URLSearchParams({
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: "2500",
+      timeMin,
+      timeMax
+    });
+    if (pageToken) params.set("pageToken", pageToken);
+    const data = await fetchGoogleJson<{ items?: GoogleCalendarEvent[]; nextPageToken?: string }>(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params.toString()}`,
+      accessToken,
+      "Google Agenda"
+    );
+    contacts.push(
+      ...(data.items ?? []).flatMap((event) =>
+        (event.attendees ?? [])
+          .map((attendee) => contactFromGoogleAttendee(event, attendee, now))
+          .filter((contact): contact is Contact => Boolean(contact))
+      )
+    );
+    pageToken = data.nextPageToken ?? "";
+  } while (pageToken);
+  return contacts;
+};
+
+const fetchGoogleContactsAndCalendar = async (accessToken: string): Promise<GoogleNetworkImport> => {
+  const now = new Date().toISOString();
+  const [profile, peopleContacts, calendarContacts] = await Promise.all([
+    fetchGoogleUserProfile(accessToken),
+    fetchGooglePeopleContacts(accessToken, now),
+    fetchGoogleCalendarContacts(accessToken, now)
   ]);
-  if (!peopleResponse.ok) throw new Error(`Google Contacts retornou ${peopleResponse.status}.`);
-  if (!calendarResponse.ok) throw new Error(`Google Agenda retornou ${calendarResponse.status}.`);
-  const peopleData = await peopleResponse.json() as { connections?: GooglePerson[] };
-  const calendarData = await calendarResponse.json() as { items?: GoogleCalendarEvent[] };
-  const peopleContacts = (peopleData.connections ?? [])
-    .map((person) => contactFromGooglePerson(person, now))
-    .filter((contact): contact is Contact => Boolean(contact));
-  const calendarContacts = (calendarData.items ?? []).flatMap((event) =>
-    (event.attendees ?? [])
-      .map((attendee) => contactFromGoogleAttendee(event, attendee, now))
-      .filter((contact): contact is Contact => Boolean(contact))
-  );
-  return mergeContactsByEmailOrPhone([...peopleContacts, ...calendarContacts]);
+  const contacts = mergeContactsByEmailOrPhone([...peopleContacts, ...calendarContacts]);
+  return {
+    profile,
+    contacts,
+    stats: {
+      peopleContacts: peopleContacts.length,
+      calendarContacts: calendarContacts.length,
+      totalBeforeMerge: peopleContacts.length + calendarContacts.length
+    }
+  };
 };
 
 function useStoredState<T>(key: string, fallback: T) {
@@ -1078,6 +1217,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
   const phoneInsight = phoneDdd ? formatDddLocation(phoneDdd) : "Digite o telefone para calcular DDD, estado e região.";
   const userCepFallback = cep.length >= 8 ? getCepFallbackLabel(cep) : "";
   const hasIdentitySource = googleConnected || appleConnected || applePreviewCount > 0;
+  const hasContactSource = googleConnected || applePreviewCount > 0;
   const companyFieldsReady = Boolean(companyName.trim() && companyRole.trim() && companySegment.trim());
   const signupReady = Boolean(
     fullName.trim().split(/\s+/).length >= 2 &&
@@ -1155,8 +1295,8 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
       setStatus("Revise nome completo, email, telefone, CEP, senha e os dados da empresa quando for conta empresarial.");
       return;
     }
-    if (!hasIdentitySource && audienceMode === "personal") {
-      setStatus("Conecte Google ou Apple antes de criar a conta. O Grafy precisa da agenda para construir sua rede de oportunidades.");
+    if (!hasContactSource && audienceMode === "personal") {
+      setStatus("Conecte Google com People API/Agenda ou carregue Apple .vcf/.ics. Apple ID sozinho identifica a conta, mas não libera contatos do iCloud no navegador.");
       return;
     }
     if (audienceMode === "hub") {
@@ -1244,15 +1384,15 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
             return;
           }
           try {
-            setStatus("Importando Google Contacts e Agenda autorizados...");
-            const contacts = await fetchGoogleContactsAndCalendar(response.access_token);
-            if (!contacts.length) {
+            setStatus("Importando perfil, Google Contacts e Agenda autorizados...");
+            const googleImport = await fetchGoogleContactsAndCalendar(response.access_token);
+            if (!googleImport.contacts.length) {
               setStatus("Google autorizou, mas não retornou contatos/participantes com os campos permitidos.");
               setGoogleImporting(false);
               return;
             }
             setGoogleConnected(true);
-            onLogin(email || "usuario-google@grafy.local", contacts, "dashboard");
+            onLogin(googleImport.profile.email || email || "usuario-google@grafy.local", googleImport.contacts, "dashboard");
           } catch (error) {
             setStatus(error instanceof Error ? error.message : "Falha ao importar dados do Google.");
             setGoogleImporting(false);
@@ -1501,8 +1641,10 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                             : "Google ou Apple identifica o admin; a base real alimenta o hub."}
                         </strong>
                         <small>
-                          {hasIdentitySource
-                            ? "Fonte conectada. Agora complete os dados para qualificar o grafo."
+                          {audienceMode === "personal" && hasContactSource
+                            ? "Fonte de contatos conectada. Agora complete os dados para qualificar o grafo."
+                            : audienceMode === "personal" && hasIdentitySource
+                              ? "Apple ID vinculado. Para montar o grafo, carregue .vcf/.ics ou use Google Contacts."
                             : audienceMode === "personal"
                               ? "Conecte uma fonte real antes de concluir o cadastro."
                               : "Vincule o admin quando possível e carregue Excel, CSV ou JSON para criar a rede compartilhada."}
@@ -2582,14 +2724,19 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
             return;
           }
           try {
-            setGoogleStatus("Lendo Google Contacts e Agenda autorizados...");
-            const contacts = await fetchGoogleContactsAndCalendar(response.access_token);
-            if (!contacts.length) {
+            setGoogleStatus("Lendo perfil, Google Contacts e Agenda autorizados...");
+            const googleImport = await fetchGoogleContactsAndCalendar(response.access_token);
+            if (!googleImport.contacts.length) {
               setGoogleStatus("Google autorizou, mas não retornou contatos/participantes com os campos permitidos.");
               return;
             }
-            addContacts(contacts);
-            setGoogleStatus(`${contacts.length} contato(s)/participante(s) importado(s) via Google Contacts + Agenda.`);
+            addContacts(googleImport.contacts);
+            setGoogleStatus(
+              `${googleImport.contacts.length} contato(s)/participante(s) importado(s) via Google Contacts + Agenda` +
+                ` (${googleImport.stats.peopleContacts} de Contacts, ${googleImport.stats.calendarContacts} de Agenda` +
+                `${googleImport.stats.totalBeforeMerge !== googleImport.contacts.length ? ", com duplicados unidos" : ""})` +
+                `${googleImport.profile.email ? ` para ${googleImport.profile.email}` : ""}.`
+            );
           } catch (error) {
             setGoogleStatus(error instanceof Error ? error.message : "Falha ao importar dados do Google.");
           } finally {

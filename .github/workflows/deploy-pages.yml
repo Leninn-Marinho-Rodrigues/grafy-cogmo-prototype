@@ -36,6 +36,12 @@ jobs:
         run: npm ci
 
       - name: Build
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_GOOGLE_CONTACTS_SCOPE: ${{ secrets.VITE_GOOGLE_CONTACTS_SCOPE }}
+          VITE_GOOGLE_CALENDAR_SCOPE: ${{ secrets.VITE_GOOGLE_CALENDAR_SCOPE }}
+          VITE_APPLE_SERVICE_ID: ${{ secrets.VITE_APPLE_SERVICE_ID }}
+          VITE_APPLE_REDIRECT_URI: ${{ secrets.VITE_APPLE_REDIRECT_URI }}
         run: npm run build
 
       - name: Upload artifact
