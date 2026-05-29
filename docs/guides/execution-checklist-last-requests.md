@@ -20,13 +20,13 @@ Regra principal: nao encerrar a conversa enquanto houver checklist obrigatorio p
 | --- | --- | --- |
 | Fazer deploy publico para chefe/colegas testarem | Concluido | GitHub Pages publicado em `https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/`. |
 | Auditar PRD/PCD e verificar funcoes sugeridas | Concluido como documento | Ver `docs/PRD-FUNCTIONAL-QA-2026-05-28.md`. |
-| Grande pacote de UX, ortografia, grafo neural, filtros, pastas, tags, grupos, Rede, Chat, Perfil, Ajustes e integracoes | Parcial | Varias partes foram melhoradas, mas o pacote completo ainda precisa de execucao sistematica. Ver Blocos 1 a 9. |
+| Grande pacote de UX, ortografia, grafo neural, filtros, pastas, tags, grupos, Rede, Chat, Perfil, Ajustes e integracoes | Concluido no prototipo | Executado em ciclo sistematico: taxonomia ampliada, grafo com afinidades, chips categorizados, Rede explicada, Chat enriquecido, Perfil/Ajustes fortalecidos e screenshots atualizados. |
 | Corrigir scroll da pagina quando usa roda do mouse dentro do grafo | Concluido | Roda do mouse agora controla zoom no grafo e nao rola a pagina dentro do canvas. |
 | Corrigir selo/titulo da Rede publica muito perto e desalinhado | Concluido | Hero da Rede recebeu espacamento e alinhamento. |
 | Corrigir tags tortas nos cards da Rede | Concluido | Chips centralizados e com altura consistente. |
 | Corrigir bolinha do toggle de visibilidade | Concluido | Centro vertical validado com `centerDelta: 0`. |
 | Melhorar estrutura do GitHub com README, docs, imagens, GIF e video | Concluido | README, `docs/guides`, assets, templates de issue/PR, GIF e MP4 adicionados. |
-| Continuar o que foi interrompido | Em andamento | Este arquivo e o roteiro de retomada. |
+| Continuar o que foi interrompido | Concluido | Checklist executado, validado com build e navegador local. |
 
 ## Imagens de referencia
 
@@ -419,15 +419,25 @@ Ao final, faça commit, push, acompanhe GitHub Actions e confirme o link publico
 
 ## Status atual dos blocos
 
-- [ ] Bloco 0 - Preparacao obrigatoria
-- [ ] Bloco 1 - Auditoria completa de texto e ortografia
-- [ ] Bloco 2 - UX/UI geral do app inteiro
-- [ ] Bloco 3 - Fundo neural e movimento com mouse
-- [ ] Bloco 4 - Grafo neural, filtros, pastas e taxonomia
-- [ ] Bloco 5 - Tags e organizacao visual
-- [ ] Bloco 6 - Grupos como board/Kanban
-- [ ] Bloco 7 - Rede publica mais clara e dinamica
-- [ ] Bloco 8 - Chat com respostas mais ricas
-- [ ] Bloco 9 - Perfil, Ajustes e integracoes seguras
-- [ ] Bloco 10 - GitHub e documentacao apos novas mudancas
+- [x] Bloco 0 - Preparacao obrigatoria
+- [x] Bloco 1 - Auditoria completa de texto e ortografia
+- [x] Bloco 2 - UX/UI geral do app inteiro
+- [x] Bloco 3 - Fundo neural e movimento com mouse
+- [x] Bloco 4 - Grafo neural, filtros, pastas e taxonomia
+- [x] Bloco 5 - Tags e organizacao visual
+- [x] Bloco 6 - Grupos como board/Kanban
+- [x] Bloco 7 - Rede publica mais clara e dinamica
+- [x] Bloco 8 - Chat com respostas mais ricas
+- [x] Bloco 9 - Perfil, Ajustes e integracoes seguras
+- [x] Bloco 10 - GitHub e documentacao apos novas mudancas
 
+## Evidencias da execucao
+
+- `npm install` executado sem vulnerabilidades.
+- `npm run build` passou apos as alteracoes.
+- Preview local validado em `http://127.0.0.1:4176/`.
+- Grafo validado com filtro cumulativo `diretor` + `financas`, focando 3 contatos.
+- Roda do mouse no canvas altera o zoom; evento `wheel` do canvas cancela o scroll padrao.
+- Chat validado com "quem presta servico de limpeza?" e "quem e diretor de financas?".
+- Desktop e mobile verificados sem overflow horizontal.
+- Screenshots atualizados em `docs/assets/`.

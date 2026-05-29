@@ -60,10 +60,12 @@ erDiagram
 ## Fluxo do grafo
 
 1. Os contatos entram por seed, criação manual ou CSV.
-2. Tags, DDDs, fontes, grupos e campos úteis viram dimensões.
-3. `buildGraph()` transforma essas dimensões em nós e arestas.
-4. Filtros reduzem o escopo ou diminuem opacidade dos itens fora do foco.
-5. O usuário navega com zoom, pan, clique em nó e inspetor lateral.
+2. Tags, DDDs, fontes, grupos, cargos, áreas e tipos de negócio viram dimensões.
+3. Demandas e problemas resolvidos também geram nós temáticos.
+4. `buildGraph()` transforma essas dimensões em nós e arestas.
+5. Afinidades leves conectam pessoas da mesma área, cargo, DDD, tipo de negócio ou pasta.
+6. Filtros cumulativos reduzem o escopo e diminuem para 8% a opacidade dos itens fora do foco.
+7. O usuário navega com zoom, pan, clique em nó e inspetor lateral.
 
 ## Busca e chat
 
@@ -77,6 +79,8 @@ No protótipo, o chat usa busca estruturada local. Ele consulta:
 - DDD.
 - Fonte.
 - Sinais de duplicidade.
+
+Consultas com mais de um sinal relevante exigem combinação dos termos, por exemplo `diretor` + `finanças`. Palavras genéricas como "quem", "meus", "contatos" e "serviço" são ignoradas para evitar resultados amplos demais.
 
 Em produção, o mesmo padrão pode virar tools de IA com confirmação antes de editar dados.
 
@@ -134,6 +138,7 @@ Entidades recomendadas:
 - **Google Contacts:** via Google People API, com OAuth e backend seguro.
 - **LinkedIn:** usar APIs oficiais aprovadas e/ou pesquisa assistida com revisão humana. Não depender de scraping logado.
 - **Meetup:** usar GraphQL/OAuth quando houver token e permissões.
+- **Instagram/X:** tratar como conectores futuros de APIs oficiais; não importar rede privada sem consentimento.
 - **IA:** CopilotKit/AG-UI com tools de leitura primeiro; escrita somente com confirmação.
 
 ## Segurança e privacidade

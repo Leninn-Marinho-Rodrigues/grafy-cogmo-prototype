@@ -62,21 +62,63 @@ export const contactHaystack = (contact: Contact) =>
     ].join(" ")
   );
 
+const queryStopWords = new Set([
+  "quem",
+  "qual",
+  "quais",
+  "meu",
+  "meus",
+  "minha",
+  "minhas",
+  "contato",
+  "contatos",
+  "presta",
+  "prestam",
+  "servico",
+  "servicos",
+  "busca",
+  "buscam",
+  "procur",
+  "procura",
+  "procuram",
+  "pode",
+  "podem",
+  "ajuda",
+  "ajudar",
+  "para",
+  "com",
+  "que",
+  "esta",
+  "estao",
+  "entre",
+  "dentre"
+]);
+
 export const scoreContact = (contact: Contact, query: string) => {
   const normalizedQuery = normalize(query);
   if (!normalizedQuery) return 1;
-  const terms = unique(normalizedQuery.split(/\s+/).filter((term) => term.length > 2));
+  const terms = unique(
+    normalizedQuery
+      .split(/\s+/)
+      .map((term) => term.replace(/[^\p{L}\p{N}]/gu, ""))
+      .filter((term) => term.length > 2 && !queryStopWords.has(term))
+  );
   if (!terms.length) return 1;
   const haystack = contactHaystack(contact);
   let score = 0;
+  let termHitCount = 0;
   for (const term of terms) {
-    if (normalize(contact.name).includes(term)) score += 7;
-    if (contact.tags.some((tag) => normalize(tag).includes(term))) score += 6;
-    if (normalize(contact.problemSolves).includes(term)) score += 5;
-    if (normalize(contact.currentDemand).includes(term)) score += 5;
-    if (normalize(contact.description).includes(term)) score += 3;
-    if (haystack.includes(term)) score += 1;
+    let termScore = 0;
+    if (normalize(contact.name).includes(term)) termScore += 7;
+    if (contact.tags.some((tag) => normalize(tag).includes(term))) termScore += 6;
+    if (normalize(contact.problemSolves).includes(term)) termScore += 5;
+    if (normalize(contact.currentDemand).includes(term)) termScore += 5;
+    if (normalize(contact.description).includes(term)) termScore += 3;
+    if (haystack.includes(term)) termScore += 1;
+    if (termScore > 0) termHitCount += 1;
+    score += termScore;
   }
+  if (terms.length > 1 && termHitCount < terms.length) return 0;
   return score;
 };
 
@@ -90,17 +132,39 @@ export const searchContacts = (contacts: Contact[], query: string) =>
 export const getAllTags = (contacts: Contact[]) =>
   unique(contacts.flatMap((contact) => contact.tags)).sort((a, b) => a.localeCompare(b));
 
+const customFieldText = (contact: Contact, key: string) => {
+  const value = contact.customFields[key];
+  if (Array.isArray(value)) return value.join(" ");
+  if (typeof value === "boolean") return value ? "sim" : "";
+  return value ? String(value) : "";
+};
+
+export const getContactTaxonomyTags = (contact: Contact, groups: GrafyState["groups"] = []) => {
+  const contactGroups = groups.filter((group) => contact.groupIds.includes(group.id));
+  return unique([
+    ...contact.tags,
+    customFieldText(contact, "area"),
+    customFieldText(contact, "cargo"),
+    customFieldText(contact, "tipoNegocio"),
+    contact.ddd ? `DDD ${contact.ddd}` : "",
+    contact.source,
+    ...contactGroups.flatMap((group) => [group.name, ...group.tags])
+  ]).filter(Boolean);
+};
+
 export const graphFilterGroups = [
-  { label: "Cargos", tags: ["diretor", "diretoria", "decisor", "CEO", "CTO", "CFO", "founder", "head", "investidor", "mentor"] },
-  { label: "Áreas", tags: ["marketing", "finanças", "tecnologia", "jurídico", "operações", "eventos", "segurança", "RH"] },
-  { label: "Negócios", tags: ["B2B", "SaaS", "PME", "startups", "consultoria", "fornecedores", "comunidade"] },
-  { label: "Estratégia", tags: ["parcerias", "fundraising", "contratos recorrentes", "growth", "compliance", "expansão"] },
-  { label: "Pastas", tags: ["Founders e Investidores", "Networking de Eventos", "Empresários Regionais", "investimento", "decisores"] }
+  { label: "Cargos", tags: ["CEO", "CTO", "CFO", "diretor", "diretoria", "decisor", "founder", "fundador", "head", "gerente", "especialista", "consultor", "fornecedor", "investidor", "mentor"] },
+  { label: "Áreas", tags: ["marketing", "vendas", "finanças", "financeiro", "investimentos", "tecnologia", "produto", "jurídico", "operações", "eventos", "segurança", "RH", "customer success", "construção"] },
+  { label: "Negócios", tags: ["B2B", "SaaS", "PME", "startups", "consultoria", "serviços B2B", "serviços locais", "fornecedores", "comunidade", "healthtech", "scale-up", "SaaS vertical", "Venture"] },
+  { label: "Estratégia", tags: ["parcerias", "fundraising", "investimento", "contratos recorrentes", "growth", "compliance", "expansão", "recrutamento", "limpeza", "governança"] },
+  { label: "Fontes", tags: ["Google Contacts", "CSV", "Manual", "Rede Pública"] },
+  { label: "Localidade", tags: ["DDD 11", "DDD 21", "DDD 31", "DDD 41", "DDD 61", "DDD 81"] },
+  { label: "Pastas", tags: ["Founders e Investidores", "Networking de Eventos", "Empresários Regionais", "decisores"] }
 ];
 
 export const getGraphFilterTags = (contacts: Contact[], groups: GrafyState["groups"] = []) => {
   const existing = unique([
-    ...getAllTags(contacts),
+    ...contacts.flatMap((contact) => getContactTaxonomyTags(contact, groups)),
     ...groups.flatMap((group) => [group.name, ...group.tags])
   ]).map((tag) => ({ tag, normalized: normalize(tag) }));
   const curated = graphFilterGroups.flatMap((group) => group.tags);
@@ -164,9 +228,11 @@ export const buildOpportunityMatches = (contacts: Contact[]) =>
       contacts
         .filter((solver) => solver.id !== seeker.id)
         .map((solver) => {
-          const demand = normalize(`${seeker.currentDemand} ${seeker.tags.join(" ")}`);
-          const solution = normalize(`${solver.problemSolves} ${solver.tags.join(" ")} ${solver.description}`);
-          const matchingTags = seeker.tags.filter((tag) => solution.includes(normalize(tag)));
+          const seekerSignals = getContactTaxonomyTags(seeker);
+          const solverSignals = getContactTaxonomyTags(solver);
+          const demand = normalize(`${seeker.currentDemand} ${seekerSignals.join(" ")}`);
+          const solution = normalize(`${solver.problemSolves} ${solver.description} ${solverSignals.join(" ")}`);
+          const matchingTags = seekerSignals.filter((tag) => solution.includes(normalize(tag)));
           const demandTerms = unique(demand.split(/\s+/).filter((term) => term.length > 4));
           const termHits = demandTerms.filter((term) => solution.includes(term));
           const sameGroup = seeker.groupIds.some((groupId) => solver.groupIds.includes(groupId));
@@ -214,6 +280,7 @@ const contactGraphHaystack = (contact: Contact, groups: GrafyState["groups"]) =>
   return normalize(
     [
       contactHaystack(contact),
+      getContactTaxonomyTags(contact, groups).join(" "),
       contactGroups.map((group) => `${group.name} ${group.tags.join(" ")}`).join(" ")
     ].join(" ")
   );
@@ -265,6 +332,33 @@ const addPairEdges = (
   }
 };
 
+const priorityGraphTopics = [
+  "CTO",
+  "investidores",
+  "investimento",
+  "parcerias",
+  "fornecedores",
+  "contratos recorrentes",
+  "fundraising",
+  "compliance",
+  "limpeza",
+  "eventos",
+  "comunidades",
+  "churn",
+  "governança",
+  "segurança",
+  "financeiro",
+  "tecnologia",
+  "recrutamento",
+  "vendas",
+  "operações"
+];
+
+const pickGraphTopics = (text: string, tags: string[] = []) => {
+  const haystack = normalize(`${text} ${tags.join(" ")}`);
+  return priorityGraphTopics.filter((topic) => haystack.includes(normalize(topic))).slice(0, 4);
+};
+
 export const buildGraph = (state: GrafyState, query = "", groupId?: string, activeFilters: string[] = []) => {
   const scopedContacts = groupId ? state.contacts.filter((contact) => contact.groupIds.includes(groupId)) : state.contacts;
   const contacts = scopedContacts;
@@ -283,6 +377,8 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
 
   contacts.forEach((contact, index) => {
     const angle = (Math.PI * 2 * index) / Math.max(contacts.length, 1) - Math.PI / 2;
+    const area = customFieldText(contact, "area");
+    const cargo = customFieldText(contact, "cargo");
     nodes.push({
       id: `contact:${contact.id}`,
       label: contact.name,
@@ -293,14 +389,20 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
       weight: 12 + contact.tags.length * 2,
       color: contact.isPublic ? nodeColorByType.public : nodeColorByType.contact,
       isDimmed: hasFocus && !matchedContactIds.has(contact.id),
-      meta: `${contact.headline || contact.source} · DDD ${contact.ddd || "?"}`
+      meta: unique([contact.headline || contact.source, area, cargo, contact.ddd ? `DDD ${contact.ddd}` : ""]).join(" · ")
     });
   });
 
-  const tags = getAllTags(contacts).slice(0, 18);
+  const sourceTags = new Set(["Manual", "CSV", "Google Contacts", "Rede Pública", "Grupo"]);
+  const tags = getGraphFilterTags(contacts, state.groups)
+    .filter((tag) => !tag.startsWith("DDD ") && !sourceTags.has(tag))
+    .slice(0, 24);
   tags.forEach((tag, index) => {
     const angle = (Math.PI * 2 * index) / Math.max(tags.length, 1) + Math.PI / 10;
     const nodeId = `tag:${tag}`;
+    const taggedContacts = contacts.filter((contact) =>
+      getContactTaxonomyTags(contact, state.groups).some((item) => normalize(item) === normalize(tag))
+    );
     nodes.push({
       id: nodeId,
       label: tag,
@@ -309,26 +411,91 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
       y: centerY + Math.sin(angle) * tagRadius,
       weight: 8,
       color: nodeColorByType.tag,
-      isDimmed: hasFocus && !contacts.some((contact) => contact.tags.includes(tag) && matchedContactIds.has(contact.id))
+      isDimmed: hasFocus && !taggedContacts.some((contact) => matchedContactIds.has(contact.id))
     });
-    contacts
-      .filter((contact) => contact.tags.includes(tag))
-      .forEach((contact) => {
-        edges.push({
-          id: `${contact.id}-${tag}`,
-          source: `contact:${contact.id}`,
-          target: nodeId,
-          type: "possui tag",
-          weight: 1,
-          color: nodeColorByType.tag,
-          isDimmed: hasFocus && !matchedContactIds.has(contact.id)
-        });
+    taggedContacts.forEach((contact) => {
+      edges.push({
+        id: `${contact.id}-${tag}`,
+        source: `contact:${contact.id}`,
+        target: nodeId,
+        type: "possui sinal",
+        weight: 1,
+        color: nodeColorByType.tag,
+        isDimmed: hasFocus && !matchedContactIds.has(contact.id)
       });
+    });
 
-    const tagContacts = contacts.filter((contact) => contact.tags.some((item) => normalize(item) === normalize(tag)));
-    if (["marketing", "finanças", "tecnologia", "jurídico", "operações", "diretoria", "decisor", "CEO", "CTO", "B2B", "PME"].some((focusTag) => normalize(focusTag) === normalize(tag))) {
-      addPairEdges(tagContacts, edges, tag, "afinidade de tag", "#7dc7ff", 0.45, matchedContactIds);
+    if (["marketing", "finanças", "financeiro", "tecnologia", "jurídico", "operações", "diretoria", "decisor", "CEO", "CTO", "CFO", "B2B", "PME", "SaaS", "fornecedores"].some((focusTag) => normalize(focusTag) === normalize(tag))) {
+      addPairEdges(taggedContacts, edges, tag, "afinidade de tag", "#7dc7ff", 0.45, matchedContactIds);
     }
+  });
+
+  const demandTopics = unique(contacts.flatMap((contact) => pickGraphTopics(contact.currentDemand, contact.tags))).slice(0, 6);
+  demandTopics.forEach((topic, index) => {
+    const nodeId = `demand:${topic}`;
+    const topicContacts = contacts.filter((contact) => normalize(`${contact.currentDemand} ${contact.tags.join(" ")}`).includes(normalize(topic)));
+    nodes.push({
+      id: nodeId,
+      label: `Busca: ${topic}`,
+      type: "demand",
+      x: 130,
+      y: 485 - index * 46,
+      weight: 7,
+      color: nodeColorByType.demand,
+      isDimmed: hasFocus && !topicContacts.some((contact) => matchedContactIds.has(contact.id))
+    });
+    topicContacts.forEach((contact) => {
+      edges.push({
+        id: `${contact.id}-demand-${topic}`,
+        source: `contact:${contact.id}`,
+        target: nodeId,
+        type: "demanda algo",
+        weight: 1.4,
+        color: nodeColorByType.demand,
+        isDimmed: hasFocus && !matchedContactIds.has(contact.id)
+      });
+    });
+  });
+
+  const solutionTopics = unique(contacts.flatMap((contact) => pickGraphTopics(contact.problemSolves, contact.tags))).slice(0, 6);
+  solutionTopics.forEach((topic, index) => {
+    const nodeId = `solution:${topic}`;
+    const topicContacts = contacts.filter((contact) => normalize(`${contact.problemSolves} ${contact.tags.join(" ")}`).includes(normalize(topic)));
+    nodes.push({
+      id: nodeId,
+      label: `Resolve: ${topic}`,
+      type: "solution",
+      x: 830,
+      y: 485 - index * 46,
+      weight: 7,
+      color: nodeColorByType.solution,
+      isDimmed: hasFocus && !topicContacts.some((contact) => matchedContactIds.has(contact.id))
+    });
+    topicContacts.forEach((contact) => {
+      edges.push({
+        id: `${contact.id}-solution-${topic}`,
+        source: `contact:${contact.id}`,
+        target: nodeId,
+        type: "resolve algo",
+        weight: 1.4,
+        color: nodeColorByType.solution,
+        isDimmed: hasFocus && !matchedContactIds.has(contact.id)
+      });
+    });
+  });
+
+  [
+    { type: "mesma área", color: "#58a6ff", get: (contact: Contact) => customFieldText(contact, "area") },
+    { type: "mesmo cargo", color: "#d29922", get: (contact: Contact) => customFieldText(contact, "cargo") },
+    { type: "tipo de negócio", color: "#a371f7", get: (contact: Contact) => customFieldText(contact, "tipoNegocio") },
+    { type: "mesmo DDD", color: "#60f2d5", get: (contact: Contact) => contact.ddd ?? "" }
+  ].forEach((affinity) => {
+    unique(contacts.map(affinity.get).filter(Boolean)).forEach((value) => {
+      const relatedContacts = contacts.filter((contact) => normalize(affinity.get(contact)) === normalize(value));
+      if (relatedContacts.length > 1) {
+        addPairEdges(relatedContacts, edges, value, affinity.type, affinity.color, 0.38, matchedContactIds);
+      }
+    });
   });
 
   const ddds = unique(contacts.map((contact) => contact.ddd).filter(Boolean)).slice(0, 8);

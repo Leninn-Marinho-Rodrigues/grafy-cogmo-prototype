@@ -33,6 +33,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: #070b12;
+  overflow-x: hidden;
 }
 
 button,
@@ -92,7 +93,7 @@ label {
   display: grid;
   grid-template-columns: 280px 1fr;
   min-height: 100vh;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .app-live-network {
@@ -1441,6 +1442,57 @@ label {
     rgba(255, 255, 255, 0.055);
   border-color: rgba(102, 231, 255, 0.16);
   line-height: 1;
+  text-align: center;
+  justify-content: center;
+}
+
+.tag-chip.tag-area,
+.filter-chip.tag-area {
+  color: #bfeeff;
+  border-color: rgba(88, 166, 255, 0.34);
+  background: rgba(88, 166, 255, 0.11);
+}
+
+.tag-chip.tag-role,
+.filter-chip.tag-role {
+  color: #ffe4a6;
+  border-color: rgba(210, 153, 34, 0.34);
+  background: rgba(210, 153, 34, 0.11);
+}
+
+.tag-chip.tag-business,
+.filter-chip.tag-business {
+  color: #dfd1ff;
+  border-color: rgba(163, 113, 247, 0.34);
+  background: rgba(163, 113, 247, 0.11);
+}
+
+.tag-chip.tag-strategy,
+.filter-chip.tag-strategy {
+  color: #c8fff1;
+  border-color: rgba(63, 185, 80, 0.34);
+  background: rgba(63, 185, 80, 0.1);
+}
+
+.tag-chip.tag-source,
+.filter-chip.tag-source {
+  color: #ffd1dc;
+  border-color: rgba(248, 81, 73, 0.32);
+  background: rgba(248, 81, 73, 0.1);
+}
+
+.tag-chip.tag-folder,
+.filter-chip.tag-folder {
+  color: #f4fbff;
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tag-chip.tag-ddd,
+.filter-chip.tag-ddd {
+  color: #baffef;
+  border-color: rgba(96, 242, 213, 0.34);
+  background: rgba(96, 242, 213, 0.1);
 }
 
 .context {
@@ -1500,6 +1552,19 @@ label {
   background: rgba(102, 231, 255, 0.13);
   border-color: rgba(102, 231, 255, 0.45);
   color: var(--cyan);
+}
+
+.toolbar-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--muted);
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .alert-card,
@@ -1993,13 +2058,15 @@ label {
 
 .graph-filter-panel {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-columns: 210px minmax(0, 1fr);
   gap: 14px;
   align-items: start;
   border: 1px solid rgba(102, 231, 255, 0.16);
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.045);
   padding: 14px;
+  max-height: 286px;
+  overflow: hidden;
 }
 
 .graph-filter-panel > div:first-child strong,
@@ -2016,12 +2083,21 @@ label {
 
 .graph-filter-groups {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+  max-height: 258px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .filter-family {
   display: grid;
   gap: 6px;
+  align-content: start;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.035);
+  padding: 9px;
 }
 
 .filter-family small {
@@ -2034,6 +2110,42 @@ label {
   display: flex;
   flex-wrap: wrap;
   gap: 7px;
+}
+
+.graph-filter-panel .filter-chip {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.graph-focus-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid rgba(96, 242, 213, 0.18);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(96, 242, 213, 0.075), rgba(88, 166, 255, 0.045));
+  padding: 12px 14px;
+}
+
+.graph-focus-bar strong,
+.graph-focus-bar span {
+  display: block;
+}
+
+.graph-focus-bar span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.active-filter-stack {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .graph-layout {
@@ -2054,6 +2166,12 @@ label {
     rgba(0, 0, 0, 0.22);
   background-size: 54px 54px, 54px 54px, auto, auto;
   overflow: hidden;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.graph-canvas:hover {
+  border-color: rgba(102, 231, 255, 0.32);
+  box-shadow: inset 0 0 0 1px rgba(102, 231, 255, 0.08), 0 18px 80px rgba(0, 0, 0, 0.22);
 }
 
 .graph-canvas-network {
@@ -2239,6 +2357,8 @@ label {
 .dot.public { background: var(--amber); }
 .dot.group { background: #fff; }
 .dot.affinity { background: #7dc7ff; }
+.dot.demand { background: var(--cyan); }
+.dot.solution { background: var(--green); }
 
 .inspector-meta {
   border: 1px solid var(--line);
@@ -2251,6 +2371,29 @@ label {
 .groups-screen {
   display: grid;
   gap: 18px;
+}
+
+.board-summary,
+.public-explainer,
+.profile-impact-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.045);
+  padding: 16px;
+}
+
+.board-summary h2 {
+  margin: 8px 0 6px;
+}
+
+.board-summary p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .group-create {
@@ -2317,6 +2460,31 @@ label {
   line-height: 1.55;
 }
 
+.group-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.group-stats-row span {
+  display: grid;
+  gap: 2px;
+  min-height: 46px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--muted);
+  padding: 8px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.group-stats-row strong {
+  color: #f3f8ff;
+  font-size: 15px;
+}
+
 .group-contact-list {
   display: grid;
   gap: 8px;
@@ -2356,6 +2524,17 @@ label {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   margin-top: 12px;
+}
+
+.group-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .color-picker-row {
@@ -2414,6 +2593,12 @@ label {
   display: grid;
   gap: 10px;
   min-width: min(420px, 100%);
+}
+
+.public-explainer,
+.profile-impact-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 14px;
 }
 
 .network-filter-strip {
@@ -2541,7 +2726,7 @@ label {
 
 .chat-result-card {
   align-items: flex-start;
-  min-height: 118px;
+  min-height: 172px;
 }
 
 .chat-result-card > span:last-child {
@@ -2562,6 +2747,18 @@ label {
 .chat-result-card b {
   color: #dcecff;
   font-weight: 800;
+}
+
+.chat-mini-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.chat-mini-tags .tag-chip {
+  min-height: 24px;
+  padding: 4px 7px;
+  font-size: 10px;
 }
 
 .chat-input {
@@ -2585,6 +2782,38 @@ label {
 .profile-card-large,
 .settings-panel {
   padding: 22px;
+}
+
+.profile-card-large {
+  justify-content: space-between;
+}
+
+.profile-score {
+  flex: 0 0 190px;
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  border: 1px solid rgba(96, 242, 213, 0.2);
+  border-radius: var(--radius);
+  background: rgba(96, 242, 213, 0.075);
+  padding: 14px;
+}
+
+.profile-score span {
+  color: var(--green);
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.profile-score strong,
+.profile-score small {
+  display: block;
+}
+
+.profile-score small {
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 .settings-panel {
@@ -2667,13 +2896,49 @@ label {
 }
 
 .connector-setting small,
-.connector-setting strong {
+.connector-setting strong,
+.connector-setting em,
+.connector-setting p {
   display: block;
 }
 
 .connector-setting small {
   margin-top: 4px;
   color: var(--muted);
+}
+
+.connector-setting p {
+  margin: 8px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.connector-setting .status-pill {
+  width: fit-content;
+  margin-top: 7px;
+  font-style: normal;
+}
+
+.connector-data-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.connector-data-list i {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #dbe9f5;
+  padding: 4px 7px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.workflow-steps.compact .workflow-step {
+  min-height: 68px;
 }
 
 .inline-form {
@@ -2798,8 +3063,13 @@ label {
   .integration-hero,
   .workflow-panel,
   .split-screen,
+  .graph-filter-panel,
+  .graph-filter-groups,
   .graph-layout,
   .profile-screen,
+  .profile-impact-strip,
+  .public-explainer,
+  .board-summary,
   .dashboard-grid,
   .import-grid,
   .settings-screen {

@@ -39,14 +39,16 @@ O que observar:
 
 ![Grafo do Grafy](../assets/grafy-03-grafo.png)
 
-O grafo é a principal camada visual do produto. Ele mostra contatos, tags, DDDs, fontes, grupos e possíveis matches.
+O grafo é a principal camada visual do produto. Ele mostra contatos, tags, DDDs, fontes, grupos, demandas, problemas resolvidos, afinidades e possíveis matches.
 
 Interações atuais:
 
 - Arrastar para navegar.
 - Usar roda do mouse para zoom dentro do canvas.
 - Clicar em nós para abrir o inspetor.
-- Filtrar por tags, fonte, grupo, DDD, demanda, problema resolvido e tipo.
+- Filtrar por cargo, área, negócio, fonte, pasta, DDD, demanda, problema resolvido e tipo de negócio.
+- Combinar filtros cumulativos, como `diretor` + `finanças`.
+- Manter contatos fora do foco com 8% de opacidade para preservar contexto sem poluir a leitura.
 - Manter a rolagem da página normal fora da área do grafo.
 
 ## 4. Rede pública
@@ -70,15 +72,30 @@ O chat simula um copiloto de networking. No MVP atual, ele faz busca estruturada
 Exemplos de perguntas:
 
 - "Quem presta serviço de limpeza?"
+- "Quem é diretor de finanças?"
 - "Quem está em DDD 11?"
 - "Quem busca parceria?"
 - "Quais contatos parecem duplicados?"
+
+Os cards de resposta mostram headline, cargo/área/tipo de negócio, tags, DDD, fonte, problema que resolve, demanda atual e motivo do match antes do clique.
 
 ## 6. Perfil e visibilidade
 
 ![Perfil do Grafy](../assets/grafy-06-perfil.png)
 
-O perfil concentra informações que viram sinais úteis para rede, busca e grafo.
+O perfil concentra informações que viram sinais úteis para rede, busca e grafo. A tela mostra um indicador de preenchimento e explica onde cada campo aparece: grafo, chat e Rede pública.
+
+## 7. Ajustes e conectores
+
+Em **Ajustes**, o protótipo organiza conectores por status e deixa claro o caminho seguro:
+
+- Google Contacts via OAuth e People API.
+- LinkedIn oficial ou enriquecimento assistido com revisão humana.
+- Meetup GraphQL como integração futura para eventos e comunidades.
+- Instagram e X/Twitter apenas como placeholders de APIs oficiais.
+- CSV/OpenAPI como caminho de importação e integração corporativa.
+
+O produto não promete scraping logado: toda integração real precisa de OAuth, preview, revisão de duplicados e aprovação antes de gravar.
 
 Campos importantes:
 

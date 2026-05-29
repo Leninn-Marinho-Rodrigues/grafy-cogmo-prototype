@@ -46,11 +46,11 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 | Dashboard | Métricas da base, atalhos, oportunidades e visão geral do workspace. |
 | Contatos | CRUD inicial, tags, demandas, problema que resolve, links, grupos e status público/privado. |
 | Importação | CSV funcional, importação manual e base preparada para Google Contacts. |
-| Grafo | Nós de contatos, tags, DDDs, fontes, grupos e matches; pan, zoom, filtros e inspetor lateral. |
+| Grafo | Nós de contatos, tags, DDDs, fontes, grupos, demandas e soluções; pan, zoom, filtros cumulativos e inspetor lateral. |
 | Rede pública | Perfis opt-in, cards públicos, filtros e separação clara da base privada. |
-| Grupos | Estrutura demonstrativa para grupos compartilhados com tags, cores e contatos. |
-| Chat | Busca estruturada por tags, demanda, DDD, problema resolvido e duplicados. |
-| Perfil | Perfil público editável, links sociais e controle de visibilidade. |
+| Grupos | Board de pastas/grupos com tags, cores, contatos e impacto visual no grafo. |
+| Chat | Busca estruturada por tags, demanda, DDD, problema resolvido, cargo/área e duplicados, com cards ricos. |
+| Perfil | Perfil público editável, links sociais, sinais para grafo/chat/Rede e controle de visibilidade. |
 | PWA | Manifest, service worker, tela offline e estrutura para instalação mobile. |
 
 ## Tour visual
@@ -158,7 +158,7 @@ Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides
 
 - O login atual é demonstrativo; autenticação real entra na fase Supabase/Google.
 - Dados de teste são persistidos no navegador de cada pessoa, não em um banco compartilhado.
-- Google Contacts, LinkedIn e Meetup aparecem como direção técnica e conectores preparados, não como coleta real em produção.
+- Google Contacts, LinkedIn, Meetup, Instagram e X/Twitter aparecem como direção técnica e conectores preparados, não como coleta real em produção.
 - Enriquecimento externo deve ser feito com APIs oficiais, consentimento e revisão humana; o sistema não deve depender de scraping logado.
 
 ## Próximas fases

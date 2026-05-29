@@ -62,7 +62,7 @@ import type { Contact, CustomField, GrafyState, GraphNode, LinkKind, ViewKey } f
 
 const STORAGE_KEY = "grafy-state-v2";
 const SESSION_KEY = "grafy-session-v2";
-const APP_SCHEMA_VERSION = "ux-neural-2026-05-28";
+const APP_SCHEMA_VERSION = "ux-neural-2026-05-28-checklist";
 
 const navItems: Array<{ key: ViewKey; label: string; icon: typeof Home }> = [
   { key: "dashboard", label: "Início", icon: Home },
@@ -173,7 +173,7 @@ function hydrateState(state: GrafyState): GrafyState {
 
 function NetworkBackdrop({ className = "", density = 72, interactive = true }: { className?: string; density?: number; interactive?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const pointerRef = useRef({ x: -9999, y: -9999, active: false });
+  const pointerRef = useRef({ x: -9999, y: -9999, active: false, strength: 0 });
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -184,6 +184,7 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
     let animationFrame = 0;
     let width = 0;
     let height = 0;
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const colors = ["#58a6ff", "#3fb950", "#d29922", "#a371f7", "#f85149"];
     const particles = Array.from({ length: density }, (_, index) => ({
       x: Math.random(),
@@ -211,7 +212,8 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
       pointerRef.current = {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
-        active: event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom
+        active: event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom,
+        strength: event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom ? 1 : pointerRef.current.strength
       };
       document.documentElement.style.setProperty("--pointer-x", `${event.clientX}px`);
       document.documentElement.style.setProperty("--pointer-y", `${event.clientY}px`);
@@ -219,18 +221,23 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
 
     const draw = (time: number) => {
       context.clearRect(0, 0, width, height);
+      const pointer = pointerRef.current;
+      pointer.strength = pointer.active ? Math.min(1, pointer.strength + 0.08) : pointer.strength * 0.92;
+      const pointerStrength = interactive ? pointer.strength : 0;
       const points = particles.map((particle) => {
-        particle.x += particle.vx / Math.max(width, 1);
-        particle.y += particle.vy / Math.max(height, 1);
+        if (!reducedMotion) {
+          particle.x += particle.vx / Math.max(width, 1);
+          particle.y += particle.vy / Math.max(height, 1);
+        }
         if (particle.x < -0.04) particle.x = 1.04;
         if (particle.x > 1.04) particle.x = -0.04;
         if (particle.y < -0.04) particle.y = 1.04;
         if (particle.y > 1.04) particle.y = -0.04;
-        const baseX = particle.x * width + Math.cos(time / 1200 + particle.phase) * 8;
-        const baseY = particle.y * height + Math.sin(time / 1500 + particle.phase) * 8;
-        const pointer = pointerRef.current;
-        const distanceToPointer = pointer.active ? Math.hypot(pointer.x - baseX, pointer.y - baseY) : 9999;
-        const pull = pointer.active && distanceToPointer < 220 ? (1 - distanceToPointer / 220) * 0.12 : 0;
+        const drift = reducedMotion ? 0 : 8;
+        const baseX = particle.x * width + Math.cos(time / 1200 + particle.phase) * drift;
+        const baseY = particle.y * height + Math.sin(time / 1500 + particle.phase) * drift;
+        const distanceToPointer = pointerStrength > 0.02 ? Math.hypot(pointer.x - baseX, pointer.y - baseY) : 9999;
+        const pull = distanceToPointer < 250 ? (1 - distanceToPointer / 250) * 0.22 * pointerStrength : 0;
         return {
           ...particle,
           px: baseX + (pointer.x - baseX) * pull,
@@ -245,7 +252,11 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
           const second = points[j];
           const distance = Math.hypot(first.px - second.px, first.py - second.py);
           if (distance > 150) continue;
-          const opacity = (1 - distance / 150) * 0.22;
+          const midX = (first.px + second.px) / 2;
+          const midY = (first.py + second.py) / 2;
+          const cursorDistance = pointerStrength > 0.02 ? Math.hypot(pointer.x - midX, pointer.y - midY) : 9999;
+          const cursorBoost = cursorDistance < 260 ? (1 - cursorDistance / 260) * 0.28 * pointerStrength : 0;
+          const opacity = (1 - distance / 150) * (0.18 + cursorBoost);
           context.strokeStyle = `rgba(125, 201, 255, ${opacity})`;
           context.lineWidth = distance < 72 ? 1.05 : 0.7;
           context.beginPath();
@@ -255,11 +266,11 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
         }
       }
 
-      if (pointerRef.current.active && interactive) {
+      if (pointerStrength > 0.02 && interactive) {
         const pointer = pointerRef.current;
         for (const point of points) {
           if (point.distanceToPointer > 230) continue;
-          const opacity = (1 - point.distanceToPointer / 230) * 0.62;
+          const opacity = (1 - point.distanceToPointer / 230) * 0.62 * pointerStrength;
           context.strokeStyle = `rgba(96, 242, 213, ${opacity})`;
           context.lineWidth = 0.7 + opacity * 1.2;
           context.setLineDash([4, 10]);
@@ -271,14 +282,14 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
         context.setLineDash([]);
 
         const gradient = context.createRadialGradient(pointer.x, pointer.y, 0, pointer.x, pointer.y, 220);
-        gradient.addColorStop(0, "rgba(88, 166, 255, 0.22)");
-        gradient.addColorStop(0.42, "rgba(63, 185, 80, 0.08)");
+        gradient.addColorStop(0, `rgba(88, 166, 255, ${0.22 * pointerStrength})`);
+        gradient.addColorStop(0.42, `rgba(63, 185, 80, ${0.08 * pointerStrength})`);
         gradient.addColorStop(1, "rgba(88, 166, 255, 0)");
         context.fillStyle = gradient;
         context.fillRect(0, 0, width, height);
 
         context.beginPath();
-        context.strokeStyle = "rgba(96, 242, 213, 0.42)";
+        context.strokeStyle = `rgba(96, 242, 213, ${0.42 * pointerStrength})`;
         context.lineWidth = 1.2;
         context.arc(pointer.x, pointer.y, 34 + Math.sin(time / 240) * 6, 0, Math.PI * 2);
         context.stroke();
@@ -293,7 +304,7 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
         context.fill();
       }
       context.shadowBlur = 0;
-      animationFrame = requestAnimationFrame(draw);
+      if (!reducedMotion) animationFrame = requestAnimationFrame(draw);
     };
 
     resize();
@@ -918,7 +929,7 @@ function Dashboard({ state, setView, setSelectedContactId }: AppShellProps) {
         <Panel title="Tags mais úteis" action="Grafo" onAction={() => setView("graph")}>
           <div className="tag-cloud">
             {tags.slice(0, 18).map((tag) => (
-              <span key={tag} className="tag-chip">{tag}</span>
+              <span key={tag} className={`tag-chip ${tagToneClass(tag)}`}>{tag}</span>
             ))}
           </div>
         </Panel>
@@ -971,7 +982,7 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
             Todos
           </button>
           {tags.slice(0, 10).map((item) => (
-            <button key={item} className={tag === item ? "filter-chip active" : "filter-chip"} onClick={() => setTag(item)}>
+            <button key={item} className={`${tag === item ? "filter-chip active" : "filter-chip"} ${tagToneClass(item)}`} onClick={() => setTag(item)}>
               {item}
             </button>
           ))}
@@ -1602,7 +1613,7 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
                   .map((tag) => (
                     <button
                       key={tag}
-                      className={activeFilters.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag)) ? "filter-chip active" : "filter-chip"}
+                      className={`${activeFilters.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag)) ? "filter-chip active" : "filter-chip"} ${tagToneClass(tag)}`}
                       onClick={() => toggleFilter(tag)}
                     >
                       {tag}
@@ -1611,6 +1622,30 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="graph-focus-bar">
+        <div>
+          <strong>{graph.hasFocus ? `${graph.matchedContactIds.size} contato(s) em foco` : `${state.contacts.length} contatos mapeados`}</strong>
+          <span>
+            {graph.hasFocus
+              ? "Quem não bate com a combinação fica em 8% de opacidade para manter contexto sem poluir a leitura."
+              : "Combine filtros como diretor + finanças, DDD 11 + eventos ou pasta + tecnologia."}
+          </span>
+        </div>
+        <div className="active-filter-stack">
+          {activeFilters.map((filter) => (
+            <button key={filter} className={`filter-chip active ${tagToneClass(filter)}`} onClick={() => toggleFilter(filter)}>
+              {filter}
+              <X size={13} />
+            </button>
+          ))}
+          {activeFilters.length > 0 && (
+            <button className="secondary-button compact" onClick={() => setActiveFilters([])}>
+              Limpar filtros
+            </button>
+          )}
         </div>
       </section>
 
@@ -1640,7 +1675,7 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
                   <line
                     key={edge.id}
                     className={`graph-edge ${edge.type === "potencial match" ? "match" : ""} ${edge.type === "afinidade de tag" || edge.type === "mesma pasta" ? "affinity" : ""} ${edge.isDimmed ? "dimmed" : ""}`}
-                    style={{ "--edge-color": edge.color ?? "#7dc7ff" } as React.CSSProperties}
+                    style={{ "--edge-color": edge.color ?? "#7dc7ff", strokeWidth: Math.max(0.7, edge.weight) } as React.CSSProperties}
                     x1={source.x}
                     y1={source.y}
                     x2={target.x}
@@ -1689,6 +1724,8 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
             <span><i className="dot public" /> público</span>
             <span><i className="dot group" /> pastas</span>
             <span><i className="dot affinity" /> afinidades</span>
+            <span><i className="dot demand" /> demandas</span>
+            <span><i className="dot solution" /> soluções</span>
           </div>
         </aside>
       </section>
@@ -1704,10 +1741,46 @@ function normalizeGraphTag(value: string) {
     .trim();
 }
 
+function tagToneClass(tag: string) {
+  const normalized = normalizeGraphTag(tag);
+  const family = graphFilterGroups.find((group) =>
+    group.tags.some((item) => normalizeGraphTag(item) === normalized)
+  )?.label;
+  if (normalized.startsWith("ddd ")) return "tag-ddd";
+  if (family === "Cargos") return "tag-role";
+  if (family === "Áreas") return "tag-area";
+  if (family === "Negócios") return "tag-business";
+  if (family === "Estratégia") return "tag-strategy";
+  if (family === "Fontes") return "tag-source";
+  if (family === "Pastas") return "tag-folder";
+  return "";
+}
+
 function shortGraphLabel(label: string) {
   if (label.length <= 18) return label;
   const [first, second] = label.split(" ");
   return second ? `${first} ${second[0]}.` : `${label.slice(0, 16)}...`;
+}
+
+function contactSignalLine(contact: Contact) {
+  return unique([
+    String(contact.customFields.cargo ?? ""),
+    String(contact.customFields.area ?? ""),
+    String(contact.customFields.tipoNegocio ?? ""),
+    contact.ddd ? `DDD ${contact.ddd}` : "",
+    contact.source
+  ]).join(" · ");
+}
+
+function contactMatchReason(contact: Contact) {
+  const signals = unique([
+    ...contact.tags.slice(0, 2),
+    String(contact.customFields.area ?? ""),
+    String(contact.customFields.cargo ?? "")
+  ]).filter(Boolean);
+  return signals.length
+    ? `Sinal do match: ${signals.join(", ")}`
+    : "Sinal do match: descrição, demanda e fonte do contato.";
 }
 
 function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelectedContactId, setView }: AppShellProps) {
@@ -1756,10 +1829,23 @@ function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelect
         </button>
       </form>
 
+      <section className="board-summary">
+        <div>
+          <span className="context group">pastas conectam estratégia</span>
+          <h2>Board de grupos compartilhados</h2>
+          <p>Cada coluna tem cor, tags e contatos próprios. Quando uma pessoa entra na pasta, o grafo cria uma conexão extra para planejamento de introduções.</p>
+        </div>
+        <button className="secondary-button compact" onClick={() => setView("graph")}>
+          <Network size={16} />
+          Ver pastas no grafo
+        </button>
+      </section>
+
       <div className="group-board">
         {state.groups.map((group) => {
           const contacts = state.contacts.filter((contact) => group.contactIds.includes(contact.id));
           const availableContacts = state.contacts.filter((contact) => !group.contactIds.includes(contact.id));
+          const groupAreas = unique(contacts.map((contact) => String(contact.customFields.area ?? "")).filter(Boolean));
           return (
             <article className="group-card kanban-column" key={group.id} style={{ "--group-color": group.color || groupColorOptions[0] } as React.CSSProperties}>
               <div className="group-card-head">
@@ -1770,6 +1856,11 @@ function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelect
                 <Users size={24} />
               </div>
               <p>{group.description}</p>
+              <div className="group-stats-row">
+                <span><strong>{contacts.length}</strong> contatos</span>
+                <span><strong>{groupAreas.length}</strong> áreas</span>
+                <span><strong>{group.tags.length}</strong> tags</span>
+              </div>
               <div className="group-controls">
                 <label>
                   Cor
@@ -1784,7 +1875,7 @@ function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelect
                 </label>
               </div>
               <div className="tag-cloud compact">
-                {group.tags.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}
+                {group.tags.map((tag) => <span className={`tag-chip ${tagToneClass(tag)}`} key={tag}>{tag}</span>)}
               </div>
               <div className="group-add-contact">
                 <select
@@ -1815,6 +1906,13 @@ function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelect
                     </span>
                   </button>
                 ))}
+              </div>
+              <div className="group-actions">
+                <button className="secondary-button compact" onClick={() => setView("graph")}>
+                  <Network size={15} />
+                  Abrir grafo
+                </button>
+                <span>Conexão extra: mesma pasta</span>
               </div>
             </article>
           );
@@ -1849,11 +1947,18 @@ function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellPro
         </div>
       </section>
 
+      <section className="public-explainer">
+        <Info icon={ShieldCheck} label="Opt-in" value="Só aparece quem marcou perfil ou contato como público." />
+        <Info icon={Network} label="Integração" value="Cards públicos também aparecem no grafo e nos matches." />
+        <Info icon={UserRound} label="Seu perfil" value={ownProfileVisible ? "Seu card já está visível na Rede." : "Ative no Perfil quando quiser ser encontrado."} />
+      </section>
+
       <div className="section-toolbar">
         <div className="search-box">
           <Search size={17} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por tag, demanda ou problema resolvido" />
         </div>
+        <span className="toolbar-count">{filteredPublicContacts.length} resultado(s)</span>
         <button className="secondary-button compact" onClick={() => setView("graph")}>
           <Network size={16} />
           Ver no grafo
@@ -1863,7 +1968,7 @@ function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellPro
       <div className="filter-strip network-filter-strip">
         <button className={!tag ? "filter-chip active" : "filter-chip"} onClick={() => setTag("")}>Todos</button>
         {publicTags.map((item) => (
-          <button key={item} className={tag === item ? "filter-chip active" : "filter-chip"} onClick={() => setTag(item)}>
+          <button key={item} className={`${tag === item ? "filter-chip active" : "filter-chip"} ${tagToneClass(item)}`} onClick={() => setTag(item)}>
             {item}
           </button>
         ))}
@@ -1876,7 +1981,7 @@ function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellPro
             <h3>{state.profile.name}</h3>
             <p>{state.profile.headline}</p>
             <div className="tag-cloud compact">
-              {state.profile.tags.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}
+              {state.profile.tags.map((tag) => <span className={`tag-chip ${tagToneClass(tag)}`} key={tag}>{tag}</span>)}
             </div>
             <strong>Resolve</strong>
             <p>{state.profile.problemSolves}</p>
@@ -1889,7 +1994,7 @@ function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellPro
             <h3>{contact.name}</h3>
             <p>{contact.headline}</p>
             <div className="tag-cloud compact">
-              {contact.tags.slice(0, 5).map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}
+              {contact.tags.slice(0, 5).map((tag) => <span className={`tag-chip ${tagToneClass(tag)}`} key={tag}>{tag}</span>)}
             </div>
             <strong>Resolve</strong>
             <p>{contact.problemSolves}</p>
@@ -1963,8 +2068,13 @@ function ChatView({ state, setState, setSelectedContactId, setView }: AppShellPr
                         <span>
                           <strong>{contact!.name}</strong>
                           <small>{contact!.headline || contact!.source}</small>
-                          <em>{contact!.tags.slice(0, 3).join(" · ")}</em>
+                          <em>{contactSignalLine(contact!)}</em>
+                          <span className="chat-mini-tags">
+                            {contact!.tags.slice(0, 3).map((tag) => <i className={`tag-chip ${tagToneClass(tag)}`} key={tag}>{tag}</i>)}
+                          </span>
                           <b>Resolve: {contact!.problemSolves.slice(0, 96) || "Sem descrição"}</b>
+                          <b>Demanda: {contact!.currentDemand.slice(0, 86) || "Sem demanda registrada"}</b>
+                          <em>{contactMatchReason(contact!)}</em>
                         </span>
                       </button>
                     ))}
@@ -2002,6 +2112,16 @@ function ProfileView({ state, setState }: AppShellProps) {
         : profile.links.filter((link) => link.kind !== kind)
     });
   };
+  const profileSignals = [
+    profile.name,
+    profile.headline,
+    profile.description,
+    profile.tags.join(" "),
+    profile.problemSolves,
+    profile.currentDemand,
+    profile.links.map((link) => link.value).join(" ")
+  ].filter((value) => value.trim());
+  const signalScore = Math.round((profileSignals.length / 7) * 100);
 
   return (
     <div className="screen profile-screen">
@@ -2014,9 +2134,20 @@ function ProfileView({ state, setState }: AppShellProps) {
           <h2>{profile.name}</h2>
           <p>{profile.headline}</p>
           <div className="tag-cloud compact">
-            {profile.tags.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}
+            {profile.tags.map((tag) => <span className={`tag-chip ${tagToneClass(tag)}`} key={tag}>{tag}</span>)}
           </div>
         </div>
+        <div className="profile-score">
+          <span>{signalScore}%</span>
+          <strong>sinais preenchidos</strong>
+          <small>Quanto melhor esse perfil, melhor o chat, a Rede e o grafo público.</small>
+        </div>
+      </section>
+
+      <section className="profile-impact-strip">
+        <Info icon={Network} label="Grafo" value="Tags, demanda e problema resolvido viram nós e filtros." />
+        <Info icon={MessageSquare} label="Chat" value="O copiloto usa esses sinais para sugerir contatos antes do clique." />
+        <Info icon={Globe2} label="Rede" value="Com opt-in, este é o card que outros usuários descobrem." />
       </section>
 
       <section className="profile-grid">
@@ -2079,32 +2210,65 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
     {
       name: "Google Contacts",
       icon: Globe2,
+      status: "OAuth pendente",
+      tone: "attention",
       body: "Login Google + People API para puxar nome, sobrenome, email, telefone e foto salvos pelo usuário.",
-      action: "Preparar Google OAuth"
+      action: "Preparar Google OAuth",
+      data: ["nome", "email", "telefone", "foto", "DDD"]
     },
     {
       name: "LinkedIn",
       icon: Link2,
+      status: "Oficial/assistido",
+      tone: "attention",
       body: "API oficial ou enriquecimento assistido para cargo, empresa e URL pública. Sem scraping logado.",
-      action: "Ver requisitos LinkedIn"
+      action: "Ver requisitos LinkedIn",
+      data: ["cargo", "empresa", "URL pública", "revisão"]
+    },
+    {
+      name: "Meetup",
+      icon: CalendarClock,
+      status: "GraphQL futuro",
+      tone: "attention",
+      body: "OAuth e GraphQL para grupos, eventos e temas autorizados, útil para dar contexto de comunidade ao grafo.",
+      action: "Mapear Meetup",
+      data: ["eventos", "grupos", "temas", "local"]
     },
     {
       name: "Instagram",
       icon: Eye,
+      status: "Futuro",
+      tone: "",
       body: "Integração futura depende das permissões oficiais da Meta. Útil para perfis autorizados e links sociais.",
-      action: "Mapear Meta API"
+      action: "Mapear Meta API",
+      data: ["perfil autorizado", "links", "sinais públicos"]
     },
     {
       name: "X / Twitter",
       icon: MessageSquare,
+      status: "Futuro",
+      tone: "",
       body: "Integração futura para links e sinais públicos autorizados, sem importar rede privada sem consentimento.",
-      action: "Planejar X API"
+      action: "Planejar X API",
+      data: ["links", "bio pública", "sinais autorizados"]
     },
     {
       name: "Telefone / WhatsApp",
       icon: Phone,
+      status: "Ativo no MVP",
+      tone: "live",
       body: "Normalização de telefones, DDD, WhatsApp e contatos importados de CSV/Google.",
-      action: "Validar telefones"
+      action: "Validar telefones",
+      data: ["telefone", "DDD", "WhatsApp", "dedupe"]
+    },
+    {
+      name: "CSV / OpenAPI",
+      icon: Database,
+      status: "Preparado",
+      tone: "live",
+      body: "Importação por arquivo e contrato base para evoluir integrações corporativas, webhooks e documentação Swagger.",
+      action: "Revisar contrato",
+      data: ["CSV", "preview", "merge", "docs"]
     }
   ];
 
@@ -2184,12 +2348,36 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
                 <span>
                   <strong>{connector.name}</strong>
                   <small>{connector.action}</small>
+                  <em className={`status-pill ${connector.tone}`}>{connector.status}</em>
+                  <p>{connector.body}</p>
+                  <span className="connector-data-list">
+                    {connector.data.map((item) => <i key={item}>{item}</i>)}
+                  </span>
                 </span>
               </button>
             );
           })}
         </div>
         <p className="integration-note">{connectorStatus}</p>
+      </section>
+
+      <section className="settings-panel consent-panel">
+        <h2>Consentimento e preview</h2>
+        <p className="panel-note">
+          Toda integração real precisa mostrar o que será importado antes de salvar. O fluxo certo é conectar, normalizar,
+          revisar duplicados, aprovar enriquecimento e só então atualizar contatos, tags, pastas e grafo.
+        </p>
+        <div className="workflow-steps compact">
+          {["OAuth oficial", "Preview de dados", "Merge com aprovação", "Atualização do grafo"].map((step, index) => (
+            <div className="workflow-step" key={step}>
+              <span>{index + 1}</span>
+              <div>
+                <strong>{step}</strong>
+                <p>{index === 0 ? "Sem senha salva e sem scraping de sessão." : "Usuário confirma antes de gravar."}</p>
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="settings-panel">
