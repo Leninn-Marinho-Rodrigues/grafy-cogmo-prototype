@@ -1,8 +1,108 @@
 # Grafy
 
-Protótipo funcional do Grafy, um CRM de networking inteligente para organizar contatos, visualizar relações em grafo, encontrar oportunidades e preparar a evolução para Supabase/Google Contacts/IA.
+<p align="center">
+  <img src="public/grafy-icon.svg" alt="Grafy" width="88" height="88" />
+</p>
 
-## Rodar localmente
+<h3 align="center">CRM de networking inteligente com visualização em grafo</h3>
+
+<p align="center">
+  Organize contatos, descubra relações úteis, encontre oportunidades de introdução e visualize a rede como um mapa vivo.
+</p>
+
+<p align="center">
+  <a href="https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/"><strong>Abrir protótipo público</strong></a>
+  ·
+  <a href="docs/guides/product-tour.md">Tour do produto</a>
+  ·
+  <a href="docs/guides/architecture.md">Arquitetura</a>
+  ·
+  <a href="docs/guides/demo-script.md">Roteiro de demo</a>
+</p>
+
+<p align="center">
+  <img alt="Deploy Grafy" src="https://github.com/Leninn-Marinho-Rodrigues/grafy-cogmo-prototype/actions/workflows/deploy-pages.yml/badge.svg" />
+  <img alt="React" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=0B1020" />
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.7-3178C6?logo=typescript&logoColor=white" />
+  <img alt="Vite" src="https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white" />
+  <img alt="PWA" src="https://img.shields.io/badge/PWA-ready-3FB950" />
+</p>
+
+![Fluxo demonstrativo do Grafy](docs/assets/grafy-demo-flow.gif)
+
+Versão em vídeo curto: [docs/assets/grafy-demo-flow.mp4](docs/assets/grafy-demo-flow.mp4)
+
+## Visão rápida
+
+O Grafy é um protótipo funcional de um produto PWA-first para gestão inteligente de contatos e networking. A proposta é transformar uma lista fria de contatos em uma rede navegável, com pessoas, tags, DDDs, grupos, demandas, problemas resolvidos, fontes de importação e possíveis complementaridades.
+
+Este repositório é uma base de demonstração para conversas internas, validação de produto e evolução técnica. Ele não é ainda a versão final com backend real, mas já entrega a experiência navegável principal do PRD.
+
+## O que dá para testar agora
+
+| Área | O que demonstra |
+| --- | --- |
+| Landing/login | Entrada visual premium, animação de rede, sessão demonstrativa local e proposta do produto. |
+| Dashboard | Métricas da base, atalhos, oportunidades e visão geral do workspace. |
+| Contatos | CRUD inicial, tags, demandas, problema que resolve, links, grupos e status público/privado. |
+| Importação | CSV funcional, importação manual e base preparada para Google Contacts. |
+| Grafo | Nós de contatos, tags, DDDs, fontes, grupos e matches; pan, zoom, filtros e inspetor lateral. |
+| Rede pública | Perfis opt-in, cards públicos, filtros e separação clara da base privada. |
+| Grupos | Estrutura demonstrativa para grupos compartilhados com tags, cores e contatos. |
+| Chat | Busca estruturada por tags, demanda, DDD, problema resolvido e duplicados. |
+| Perfil | Perfil público editável, links sociais e controle de visibilidade. |
+| PWA | Manifest, service worker, tela offline e estrutura para instalação mobile. |
+
+## Tour visual
+
+| Landing | Dashboard |
+| --- | --- |
+| ![Landing do Grafy](docs/assets/grafy-01-landing.png) | ![Dashboard do Grafy](docs/assets/grafy-02-dashboard.png) |
+
+| Grafo | Rede pública |
+| --- | --- |
+| ![Grafo do Grafy](docs/assets/grafy-03-grafo.png) | ![Rede pública do Grafy](docs/assets/grafy-04-rede-publica.png) |
+
+| Chat | Perfil e visibilidade |
+| --- | --- |
+| ![Chat do Grafy](docs/assets/grafy-05-chat.png) | ![Perfil do Grafy](docs/assets/grafy-06-perfil.png) |
+
+| Mobile |
+| --- |
+| ![Versão mobile do Grafy](docs/assets/grafy-07-mobile.png) |
+
+## Arquitetura resumida
+
+```mermaid
+flowchart LR
+  Usuario["Usuário"] --> UI["React + TypeScript"]
+  UI --> Estado["Estado local + localStorage"]
+  UI --> PWA["Manifest + Service Worker"]
+  UI --> Grafo["Motor visual do grafo"]
+  UI --> Busca["Busca estruturada e chat"]
+
+  Estado --> Contatos["Contatos, tags, grupos e perfil"]
+  Contatos --> Grafo
+  Contatos --> Busca
+
+  Futuro["Próxima fase"] --> Supabase["Supabase Auth + Postgres + RLS"]
+  Futuro --> Google["Google People API"]
+  Futuro --> IA["CopilotKit / AG-UI"]
+  Futuro --> OpenAPI["OpenAPI / Swagger"]
+```
+
+Mais detalhes em [docs/guides/architecture.md](docs/guides/architecture.md).
+
+## Stack
+
+- **Frontend:** React 19, TypeScript, Vite.
+- **UI e ícones:** CSS próprio, lucide-react, motion.
+- **PWA:** manifest, service worker e página offline.
+- **Persistência atual:** localStorage para protótipo demonstrativo.
+- **Deploy:** GitHub Pages via GitHub Actions.
+- **Evolução recomendada:** Supabase Auth, Postgres com RLS, Google People API, OpenAPI/Swagger e copiloto com ferramentas confirmadas.
+
+## Rodando localmente
 
 ```bash
 npm install
@@ -15,69 +115,72 @@ Abra:
 http://127.0.0.1:5173/
 ```
 
-## Deploy público
-
-URL para apresentação e testes:
-
-```text
-https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/
-```
-
-Este deploy é demonstrativo. Cada pessoa pode usar o próprio email na tela inicial para criar/entrar em um workspace salvo no navegador dela. A opção **Ajustes -> Apagar conta de teste** limpa os dados locais daquela pessoa. Login real compartilhado com Supabase/Google entra na próxima fase.
-
-## O que já funciona
-
-- Login demonstrativo com sessão local.
-- Landing/login com canvas animado de rede, spotlight seguindo o mouse, preview de produto, seções comerciais separadas e transições com `motion`.
-- Dashboard com contatos, tags, perfis públicos, duplicados e oportunidades.
-- CRUD inicial de contatos: criar, editar campos principais, excluir e tornar público.
-- Importação CSV com preview e normalização básica.
-- Status de Google/Gmail Contacts com checagem de `VITE_GOOGLE_CLIENT_ID`.
-- Área de enriquecimento LinkedIn seguro, abrindo pesquisas assistidas para revisão humana.
-- Tela de conectores com plano técnico para Google Contacts, LinkedIn oficial/assistido, Meetup GraphQL e OpenAPI.
-- Sugestão de duplicados por email ou telefone.
-- Merge aprovado pelo usuário, sem merge automático.
-- Grafo interno com contatos, tags, DDDs, fontes, grupos, matches e camada animada de conexões.
-- Rede pública com opt-in.
-- Grupos compartilhados demonstrativos.
-- Campos personalizados demonstrativos.
-- Chat de busca estruturada com respostas por tags, demandas, problemas resolvidos, DDD e duplicados.
-- PWA básico com manifest, service worker e página offline.
-- Persistência local no navegador.
-- Auditoria de lacunas do PRD em `docs/PRD-GAP-AUDIT-2026-05-28.md`.
-
-## Validação feita
+Para validar a build:
 
 ```bash
 npm run build
+npm run preview -- --port 4176
 ```
 
-Smoke test no navegador:
+## Estrutura do repositório
 
-- Dashboard carregou.
-- Base inicial com 12 contatos carregou.
-- Grafo renderizou 38 nós.
-- Chat respondeu "quem presta serviço de limpeza?" com Rafael Nunes.
-- Importação CSV adicionou Paula Andrade.
-- Service worker ficou ativo.
-- Console atual sem erros.
+```text
+.
+├── src/
+│   ├── App.tsx        # Telas, fluxos e composição principal
+│   ├── data.ts        # Dados demonstrativos
+│   ├── lib.ts         # Helpers de busca, tags, grafo e persistência
+│   ├── styles.css     # Design system, layout, motion e responsividade
+│   └── types.ts       # Contratos TypeScript do domínio
+├── public/
+│   ├── manifest.json  # PWA
+│   ├── sw.js          # Service worker básico
+│   └── offline.html   # Fallback offline
+├── docs/
+│   ├── assets/        # Imagens e GIFs usados na documentação
+│   ├── guides/        # Guias curtos para produto, demo e arquitetura
+│   └── *.md           # Pesquisa, auditorias e gaps do PRD
+└── .github/
+    └── workflows/     # Deploy GitHub Pages
+```
+
+## Demonstração para colegas
+
+Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides/demo-script.md). A versão publicada é pensada para teste de navegação e apresentação do conceito:
+
+1. Abrir a landing.
+2. Entrar com o modo demonstrativo.
+3. Mostrar dashboard, grafo, rede pública e chat.
+4. Explicar que os dados ficam no navegador.
+5. Apagar dados de teste em **Ajustes** quando necessário.
+
+## Limites importantes
+
+- O login atual é demonstrativo; autenticação real entra na fase Supabase/Google.
+- Dados de teste são persistidos no navegador de cada pessoa, não em um banco compartilhado.
+- Google Contacts, LinkedIn e Meetup aparecem como direção técnica e conectores preparados, não como coleta real em produção.
+- Enriquecimento externo deve ser feito com APIs oficiais, consentimento e revisão humana; o sistema não deve depender de scraping logado.
 
 ## Próximas fases
 
-1. Ligar Supabase Auth e Postgres.
-2. Criar migrations e RLS.
-3. Configurar Google OAuth com `VITE_GOOGLE_CLIENT_ID` e origem autorizada.
-4. Trocar persistência local por Supabase.
-5. Implementar Google Contacts via Google People API em backend seguro.
-6. LinkedIn: usar apenas APIs oficiais aprovadas ou pesquisa assistida com revisão humana; não automatizar scraping logado.
-7. Meetup: criar conector OAuth/GraphQL quando houver acesso/token, trazendo eventos, grupos, temas e participantes autorizados.
-8. Evoluir o grafo para Sigma.js/Graphology.
-9. Adicionar OpenAPI/Swagger.
-10. Adicionar CopilotKit/AG-UI com tools de leitura e escrita confirmada.
+1. Ligar Supabase Auth, Postgres, Storage e Row Level Security.
+2. Criar migrations para contatos, tags, grupos, campos customizados, perfis públicos, imports e chat.
+3. Implementar Google Contacts via backend seguro com OAuth e Google People API.
+4. Evoluir o grafo para uma engine especializada quando a base crescer.
+5. Adicionar OpenAPI/Swagger e webhooks para integrações.
+6. Integrar copiloto com ferramentas de leitura e escrita confirmada.
+7. Separar dados de demo, staging e produção.
 
-## Conectores e limites importantes
+## Documentação
 
-- **Google Contacts**: caminho recomendado para contatos reais do Gmail. Exige Google OAuth, escopo de contatos, origem autorizada e backend/Supabase Edge Function para proteger tokens.
-- **LinkedIn**: bom para login/perfil próprio e enriquecimento profissional revisado. A plataforma não deve depender de scraping automático nem prometer acesso livre a contatos, cargos ou conexões sem permissão oficial.
-- **Meetup**: pode enriquecer o grafo com eventos, grupos, interesses, localidade e participantes quando houver OAuth/GraphQL autorizado.
-- **Enriquecimento seguro**: toda fonte externa deve entrar como preview, sugerir merge e pedir aprovação antes de alterar contatos.
+- [Tour do produto](docs/guides/product-tour.md)
+- [Arquitetura e decisões técnicas](docs/guides/architecture.md)
+- [Roteiro de demo](docs/guides/demo-script.md)
+- [Design system e UX](docs/guides/design-system.md)
+- [Auditoria de gaps do PRD](docs/PRD-GAP-AUDIT-2026-05-28.md)
+- [Pesquisa de referências](docs/RESEARCH-NETWORK-CRM-INSPIRATION-2026-05-28.md)
+- [Pesquisa profunda de apps e bibliotecas](docs/DEEP-RESEARCH-NETWORK-APPS-2026-05-28.md)
+
+## Status
+
+Protótipo funcional publicado para validação interna. O objetivo deste repositório é demonstrar a experiência, organizar o plano técnico e servir como base para a próxima fase de produto.
