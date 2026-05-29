@@ -122,15 +122,16 @@ Abra:
 http://127.0.0.1:5173/
 ```
 
-### OAuth real: Google e Apple
+### Login real: Google e Apple
 
-O protótipo não usa client secret no front-end. A tela de login é simples para o usuário final: ele só clica em Google ou Apple. Para o botão abrir o provedor real, o ambiente do app precisa ter os IDs públicos configurados uma única vez pelo time técnico:
+O protótipo não usa client secret no front-end. A tela de login é simples para o usuário final: ele só clica em **Continuar com Google** ou **Continuar com Apple**. O caminho preferencial para o protótipo é Firebase Auth, porque ele entrega a experiência social-login pronta, com popup do Google e token OAuth para buscar dados autorizados.
 
-1. No Google Cloud Console, crie um OAuth Client ID do tipo **Web application**.
-2. Habilite **People API** e **Google Calendar API** no mesmo projeto.
-3. Adicione as origens autorizadas `http://127.0.0.1:5173` e `https://leninn-marinho-rodrigues.github.io`.
-4. Salve o Client ID em `VITE_GOOGLE_CLIENT_ID` no ambiente local ou nos secrets do GitHub Pages.
-5. No Apple Developer, configure **Sign in with Apple for the Web** com Service ID e Return URL exata do deploy. No web, Apple ID autentica a pessoa; contatos do iCloud entram por `.vcf` e agenda por `.ics`.
+1. Crie um projeto no Firebase Console e ative **Authentication > Sign-in method > Google**.
+2. Em **Project settings > Web app**, copie as chaves públicas para `VITE_FIREBASE_*`.
+3. No Google Cloud do mesmo projeto, habilite **People API** e **Google Calendar API** para permitir Contacts/Agenda autorizados.
+4. Adicione `localhost`, `127.0.0.1` e `leninn-marinho-rodrigues.github.io` aos domínios autorizados do Firebase Auth.
+5. Como fallback sem Firebase, o app ainda aceita `VITE_GOOGLE_CLIENT_ID` com Google Identity Services.
+6. Para Apple, o caminho mais simples é habilitar o provedor Apple no Firebase; contatos do iCloud no web continuam por `.vcf` e agenda por `.ics`.
 
 Para publicar no GitHub Pages, crie estes secrets no repositório:
 
@@ -138,6 +139,12 @@ Para publicar no GitHub Pages, crie estes secrets no repositório:
 VITE_GOOGLE_CLIENT_ID
 VITE_GOOGLE_CONTACTS_SCOPE
 VITE_GOOGLE_CALENDAR_SCOPE
+VITE_FIREBASE_API_KEY
+VITE_FIREBASE_AUTH_DOMAIN
+VITE_FIREBASE_PROJECT_ID
+VITE_FIREBASE_APP_ID
+VITE_FIREBASE_MESSAGING_SENDER_ID
+VITE_FIREBASE_STORAGE_BUCKET
 VITE_APPLE_SERVICE_ID
 VITE_APPLE_REDIRECT_URI
 ```
@@ -192,7 +199,7 @@ Links úteis:
 
 - O login atual ainda é local no protótipo; a experiência já está orientada a conectar/importar dados reais, mas autenticação persistente entra na fase Supabase/Google.
 - Dados de teste são persistidos no navegador de cada pessoa, não em um banco compartilhado.
-- Google Contacts e Google Calendar tentam OAuth real já no onboarding quando `VITE_GOOGLE_CLIENT_ID` está configurado; sem isso, o protótipo mostra uma mensagem amigável de integração ainda não ativada e não injeta contatos artificiais.
+- Google Contacts e Google Calendar tentam login real já no onboarding quando Firebase Auth ou `VITE_GOOGLE_CLIENT_ID` está configurado; sem isso, o protótipo mostra uma mensagem amigável de integração ainda não ativada e não injeta contatos artificiais.
 - Sign in with Apple no web resolve identidade, mas não libera a agenda de contatos do iCloud. Por isso, Apple Contacts funciona no web por vCard/.vcf e Apple Agenda por `.ics`; acesso direto exige app nativo ou wrapper mobile com Contacts/EventKit.
 - LinkedIn, Meetup, Instagram e X/Twitter aparecem como direção técnica e conectores preparados, não como coleta real em produção.
 - Enriquecimento externo deve ser feito com APIs oficiais, consentimento e revisão humana; o sistema não deve depender de scraping logado.

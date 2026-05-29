@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
+import type { FirebaseApp, FirebaseOptions } from "firebase/app";
 import {
   BadgeCheck,
   Bot,
@@ -102,37 +103,45 @@ type LandingMode = "choice" | AudienceMode | SignupLandingMode;
 type AuthMode = "signup" | "login";
 type AccountType = "personal" | "company";
 type AuthLoginHandler = (email: string, importedContacts?: Contact[], targetView?: ViewKey) => void;
+type FirebaseRuntimeConfig = {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  appId: string;
+  messagingSenderId?: string;
+  storageBucket?: string;
+};
 type OAuthRuntimeConfig = {
   googleClientId: string;
   appleServiceId: string;
   appleRedirectUri: string;
+  firebase: FirebaseRuntimeConfig | null;
 };
-
-const OAUTH_CONFIG_STORAGE_KEY = "grafy-oauth-runtime-config-v1";
 
 const envString = (value: unknown) => (typeof value === "string" ? value.trim() : "");
 
-const sanitizeOAuthConfig = (config: Partial<OAuthRuntimeConfig>): OAuthRuntimeConfig => ({
-  googleClientId: config.googleClientId?.trim() ?? "",
-  appleServiceId: config.appleServiceId?.trim() ?? "",
-  appleRedirectUri: config.appleRedirectUri?.trim() ?? ""
-});
-
-const readStoredOAuthConfig = (): OAuthRuntimeConfig => {
-  try {
-    const raw = window.localStorage.getItem(OAUTH_CONFIG_STORAGE_KEY);
-    return raw ? sanitizeOAuthConfig(JSON.parse(raw) as Partial<OAuthRuntimeConfig>) : sanitizeOAuthConfig({});
-  } catch {
-    return sanitizeOAuthConfig({});
-  }
+const getFirebaseRuntimeConfig = (): FirebaseRuntimeConfig | null => {
+  const apiKey = envString(import.meta.env.VITE_FIREBASE_API_KEY);
+  const authDomain = envString(import.meta.env.VITE_FIREBASE_AUTH_DOMAIN);
+  const projectId = envString(import.meta.env.VITE_FIREBASE_PROJECT_ID);
+  const appId = envString(import.meta.env.VITE_FIREBASE_APP_ID);
+  if (!apiKey || !authDomain || !projectId || !appId) return null;
+  return {
+    apiKey,
+    authDomain,
+    projectId,
+    appId,
+    messagingSenderId: envString(import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID) || undefined,
+    storageBucket: envString(import.meta.env.VITE_FIREBASE_STORAGE_BUCKET) || undefined
+  };
 };
 
 const getOAuthRuntimeConfig = (): OAuthRuntimeConfig => {
-  const stored = readStoredOAuthConfig();
   return {
-    googleClientId: envString(import.meta.env.VITE_GOOGLE_CLIENT_ID) || stored.googleClientId,
-    appleServiceId: envString(import.meta.env.VITE_APPLE_SERVICE_ID) || stored.appleServiceId,
-    appleRedirectUri: envString(import.meta.env.VITE_APPLE_REDIRECT_URI) || stored.appleRedirectUri
+    googleClientId: envString(import.meta.env.VITE_GOOGLE_CLIENT_ID),
+    appleServiceId: envString(import.meta.env.VITE_APPLE_SERVICE_ID),
+    appleRedirectUri: envString(import.meta.env.VITE_APPLE_REDIRECT_URI),
+    firebase: getFirebaseRuntimeConfig()
   };
 };
 
@@ -141,8 +150,9 @@ function useOAuthRuntimeConfig() {
 
   return {
     oauthConfig: config,
-    googleClientConfigured: Boolean(config.googleClientId),
-    appleClientConfigured: Boolean(config.appleServiceId && config.appleRedirectUri)
+    firebaseConfigured: Boolean(config.firebase),
+    googleClientConfigured: Boolean(config.firebase || config.googleClientId),
+    appleClientConfigured: Boolean(config.firebase || (config.appleServiceId && config.appleRedirectUri))
   };
 }
 
@@ -668,6 +678,102 @@ const fetchGoogleContactsAndCalendar = async (accessToken: string): Promise<Goog
       totalBeforeMerge: peopleContacts.length + calendarContacts.length
     }
   };
+};
+
+const createEmptyGoogleImport = (profile: GoogleUserProfile): GoogleNetworkImport => ({
+  profile,
+  contacts: [],
+  stats: {
+    peopleContacts: 0,
+    calendarContacts: 0,
+    totalBeforeMerge: 0
+  }
+});
+
+const getFirebaseApp = async (config: FirebaseRuntimeConfig): Promise<FirebaseApp> => {
+  const { getApps, initializeApp } = await import("firebase/app");
+  const existing = getApps()[0];
+  if (existing) return existing;
+  const options: FirebaseOptions = {
+    apiKey: config.apiKey,
+    authDomain: config.authDomain,
+    projectId: config.projectId,
+    appId: config.appId,
+    messagingSenderId: config.messagingSenderId,
+    storageBucket: config.storageBucket
+  };
+  return initializeApp(options);
+};
+
+const requestFirebaseGoogleNetworkImport = async (
+  firebaseConfig: FirebaseRuntimeConfig,
+  onStatus: (message: string) => void
+): Promise<GoogleNetworkImport> => {
+  const [{ getAuth, GoogleAuthProvider, signInWithPopup }, app] = await Promise.all([
+    import("firebase/auth"),
+    getFirebaseApp(firebaseConfig)
+  ]);
+  const auth = getAuth(app);
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  provider.addScope(envScope(import.meta.env.VITE_GOOGLE_CONTACTS_SCOPE, "https://www.googleapis.com/auth/contacts.readonly"));
+  provider.addScope(envScope(import.meta.env.VITE_GOOGLE_CALENDAR_SCOPE, "https://www.googleapis.com/auth/calendar.readonly"));
+
+  onStatus("Abrindo Google...");
+  const result = await signInWithPopup(auth, provider);
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  const profile: GoogleUserProfile = {
+    email: result.user.email ?? undefined,
+    name: result.user.displayName ?? undefined,
+    picture: result.user.photoURL ?? undefined
+  };
+
+  if (!credential?.accessToken) {
+    onStatus("Login Google concluído. O Google não devolveu permissão de contatos nesta sessão.");
+    return createEmptyGoogleImport(profile);
+  }
+
+  try {
+    onStatus("Login Google concluído. Importando Contacts e Agenda autorizados...");
+    const googleImport = await fetchGoogleContactsAndCalendar(credential.accessToken);
+    return {
+      ...googleImport,
+      profile: {
+        ...profile,
+        ...googleImport.profile
+      }
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "People API ou Calendar API não retornou dados.";
+    onStatus(`Login Google concluído para ${profile.email ?? "a conta escolhida"}. Não consegui importar contatos ainda: ${detail}`);
+    return createEmptyGoogleImport(profile);
+  }
+};
+
+const requestFirebaseAppleIdentity = async (firebaseConfig: FirebaseRuntimeConfig): Promise<GoogleUserProfile> => {
+  const [{ getAuth, OAuthProvider, signInWithPopup }, app] = await Promise.all([
+    import("firebase/auth"),
+    getFirebaseApp(firebaseConfig)
+  ]);
+  const auth = getAuth(app);
+  const provider = new OAuthProvider("apple.com");
+  provider.addScope("email");
+  provider.addScope("name");
+  const result = await signInWithPopup(auth, provider);
+  return {
+    email: result.user.email ?? undefined,
+    name: result.user.displayName ?? undefined,
+    picture: result.user.photoURL ?? undefined
+  };
+};
+
+const requestGoogleProviderNetworkImport = async (
+  config: OAuthRuntimeConfig,
+  onStatus: (message: string) => void
+): Promise<GoogleNetworkImport> => {
+  if (config.firebase) return requestFirebaseGoogleNetworkImport(config.firebase, onStatus);
+  if (config.googleClientId) return requestGoogleNetworkImport(config.googleClientId, onStatus);
+  throw new Error("Google ainda não está ativado nesta publicação.");
 };
 
 const requestGoogleNetworkImport = async (
@@ -1470,9 +1576,9 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
       return;
     }
     setGoogleImporting(true);
-    setStatus("Abrindo consentimento Google para Contacts e Agenda...");
+    setStatus("Abrindo Google...");
     try {
-      const googleImport = await requestGoogleNetworkImport(oauthConfig.googleClientId, setStatus);
+      const googleImport = await requestGoogleProviderNetworkImport(oauthConfig, setStatus);
       setGoogleConnected(true);
       const sessionEmail = googleImport.profile.email || email || "usuario-google@grafy.local";
       if (!googleImport.contacts.length) {
@@ -1503,6 +1609,17 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
     }
     setAppleIdentityImporting(true);
     try {
+      if (oauthConfig.firebase) {
+        const appleProfile = await requestFirebaseAppleIdentity(oauthConfig.firebase);
+        if (appleProfile.email) setEmail(appleProfile.email);
+        setAppleConnected(true);
+        if (authMode === "login") {
+          onLogin(appleProfile.email || email || "usuario-apple@grafy.local", [], "import");
+          return;
+        }
+        setStatus("Apple ID vinculado. No web, carregue .vcf/.ics para trazer contatos reais; acesso direto ao iCloud Contacts exige app nativo.");
+        return;
+      }
       await loadAppleIdentityScript();
       window.AppleID?.auth?.init({
         clientId: oauthConfig.appleServiceId,
@@ -2787,9 +2904,9 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
       return;
     }
     setGoogleImporting(true);
-    setGoogleStatus("Abrindo consentimento Google para Contacts e Agenda...");
+    setGoogleStatus("Abrindo Google...");
     try {
-      const googleImport = await requestGoogleNetworkImport(oauthConfig.googleClientId, setGoogleStatus);
+      const googleImport = await requestGoogleProviderNetworkImport(oauthConfig, setGoogleStatus);
       if (!googleImport.contacts.length) {
         setGoogleStatus("Google autorizou o login, mas não retornou contatos/participantes com os campos permitidos.");
         return;
