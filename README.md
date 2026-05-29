@@ -42,10 +42,10 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 
 | Área | O que demonstra |
 | --- | --- |
-| Landing/login | Duas páginas de entrada: `#/empresarios` para B2C e `#/hubs-eventos` para B2B/B2B2C, com narrativa, CTA e fluxo próprios. |
+| Landing/onboarding | Duas entradas reais: `#/empresarios` para B2C e `#/hubs-eventos` para B2B/B2B2C. O primeiro card já prioriza conectar Google ou importar Apple antes de abrir o workspace. |
 | Dashboard | Métricas da base, atalhos, oportunidades e visão geral do workspace. |
 | Contatos | CRUD inicial, tags, demandas, problema que resolve, links, grupos e status público/privado. |
-| Importação | CSV funcional, importação manual, Google Data Hub com OAuth real opcional para Contacts + Agenda, Apple Contacts por `.vcf` e Apple Agenda por `.ics`. |
+| Importação | Onboarding com Google Contacts + Google Agenda quando `VITE_GOOGLE_CLIENT_ID` existe; Apple Contacts por `.vcf`, Apple Agenda por `.ics`, CSV e importação manual. |
 | Grafo | Nós de contatos, tags, DDDs/localidade, fontes, grupos, demandas e soluções; pan, zoom, filtros cumulativos e inspetor lateral. |
 | Rede pública | Perfis opt-in, cards públicos, filtros e separação clara da base privada. |
 | Grupos | Board de pastas/grupos com tags, cores, contatos e impacto visual no grafo para hubs, eventos e empresas. |
@@ -157,7 +157,7 @@ Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides
 
 1. Abrir a landing de empresários ou hubs/eventos pelo seletor do topo ou pelos links diretos.
 2. Entrar com o modo demonstrativo.
-3. Ir em **Importar** e testar Google Data Hub, Apple vCard, Apple Agenda `.ics` ou CSV.
+3. No primeiro card, testar **Conectar Google**, **Apple .vcf/.ics** ou entrar com dados de demonstração. Depois, usar **Importar** para CSV, vCard, `.ics` e revisão complementar.
 4. Mostrar dashboard, grafo, rede pública, grupos e chat.
 5. Explicar que os dados ficam no navegador.
 6. Apagar dados de teste em **Ajustes** quando necessário.
@@ -169,11 +169,10 @@ Links úteis:
 
 ## Limites importantes
 
-- O login atual é demonstrativo; autenticação real entra na fase Supabase/Google.
+- O login atual é demonstrativo; a experiência de onboarding já simula o fluxo certo, mas autenticação persistente entra na fase Supabase/Google.
 - Dados de teste são persistidos no navegador de cada pessoa, não em um banco compartilhado.
-- Google Contacts e Google Calendar tentam OAuth real quando `VITE_GOOGLE_CLIENT_ID` está configurado; sem isso, o protótipo usa amostras demonstrativas.
-- Apple Contacts funciona no web por vCard/.vcf colado ou carregado.
-- Apple Agenda funciona no web por arquivo/texto `.ics`; acesso nativo direto a agenda/contatos Apple exige app nativo ou wrapper mobile com Contacts/EventKit.
+- Google Contacts e Google Calendar tentam OAuth real já no onboarding quando `VITE_GOOGLE_CLIENT_ID` está configurado; sem isso, o protótipo usa amostras demonstrativas.
+- Sign in with Apple no web resolve identidade, mas não libera a agenda de contatos do iCloud. Por isso, Apple Contacts funciona no web por vCard/.vcf e Apple Agenda por `.ics`; acesso direto exige app nativo ou wrapper mobile com Contacts/EventKit.
 - LinkedIn, Meetup, Instagram e X/Twitter aparecem como direção técnica e conectores preparados, não como coleta real em produção.
 - Enriquecimento externo deve ser feito com APIs oficiais, consentimento e revisão humana; o sistema não deve depender de scraping logado.
 
@@ -181,9 +180,9 @@ Links úteis:
 
 1. Ligar Supabase Auth, Postgres, Storage e Row Level Security.
 2. Criar migrations para contatos, tags, grupos, campos customizados, perfis públicos, imports e chat.
-3. Implementar Google Contacts via backend seguro com OAuth e Google People API.
-4. Implementar Google Agenda via Calendar API para eventos, participantes, origem e follow-up.
-5. Implementar Apple Contacts por vCard no web e Contacts/EventKit no app nativo quando houver wrapper mobile.
+3. Persistir o conector Google do onboarding com backend seguro, OAuth e Google People API.
+4. Persistir Google Agenda via Calendar API para eventos, participantes, origem e follow-up.
+5. Manter Apple web por vCard/.ics e adicionar Contacts/EventKit no app nativo quando houver wrapper mobile.
 6. Modelar tenants para hubs/eventos/empresas, com membros, imports em lote e permissões.
 7. Evoluir o grafo para uma engine especializada quando a base crescer.
 8. Adicionar OpenAPI/Swagger e webhooks para integrações.

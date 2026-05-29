@@ -34,19 +34,19 @@ Mostre a tela inicial e comente:
 - B2C: rede privada do empresário para clientes, parceiros e fornecedores.
 - B2B/B2B2C: base compartilhada para eventos, hubs, comunidades e empresas.
 
-### 2. Entrada demonstrativa e importação
+### 2. Onboarding com conectores
 
-Clique em **Entrar sem senha real**.
+Mostre o primeiro card e escolha um caminho:
 
-Comente:
+- **Conectar Google e criar workspace:** tenta OAuth real quando `VITE_GOOGLE_CLIENT_ID` existe; sem credencial, usa amostra demonstrativa.
+- **Apple .vcf/.ics:** carrega contatos do Apple Contacts e participantes da Apple Agenda no web.
+- **Entrar com dados de demonstração:** abre o app sem conta real para apresentação rápida.
 
-- Cada pessoa pode testar sem criar conta real.
-- No futuro, a entrada será Google login, magic link e Supabase Auth.
+Comente que cada pessoa pode testar sem criar conta real e que autenticação persistente entra com Supabase Auth.
 
 Abra **Importar** e demonstre:
 
-- **Google Data Hub:** importa amostra de Google Contacts + Agenda.
-- **Google real opcional:** se `VITE_GOOGLE_CLIENT_ID` estiver configurado, o botão tenta OAuth e lê Contacts + Agenda autorizados.
+- **Google Data Hub:** repete o conector para Contacts + Agenda e permite validar o fluxo depois do onboarding.
 - **Apple Contacts + Calendar:** importa amostra Apple, `.vcf` do iCloud/Contatos ou `.ics` da Apple Agenda.
 - **CSV:** mantém o caminho simples para bases corporativas e testes rápidos.
 

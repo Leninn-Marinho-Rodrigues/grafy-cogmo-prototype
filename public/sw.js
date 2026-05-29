@@ -1,4 +1,4 @@
-const CACHE_NAME = "grafy-shell-v1";
+const CACHE_NAME = "grafy-shell-v2-connector-onboarding";
 const scopeUrl = self.registration.scope;
 const OFFLINE_URL = new URL("offline.html", scopeUrl).toString();
 const APP_SHELL = ["", "index.html", "offline.html", "manifest.json", "grafy-icon.svg"].map((path) =>
@@ -20,6 +20,8 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  if (event.request.method !== "GET") return;
+
   if (event.request.mode === "navigate") {
     event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)));
     return;
@@ -31,7 +33,7 @@ self.addEventListener("fetch", (event) => {
       return fetch(event.request).then((response) => {
         const clone = response.clone();
         caches.open(CACHE_NAME).then((cache) => {
-          if (event.request.method === "GET" && response.status === 200) cache.put(event.request, clone);
+          if (response.status === 200) cache.put(event.request, clone);
         });
         return response;
       });

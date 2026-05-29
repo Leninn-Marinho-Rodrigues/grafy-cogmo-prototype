@@ -90,6 +90,7 @@ const linkLabels: Record<LinkKind, string> = {
 const mobileNavOrder: ViewKey[] = ["dashboard", "contacts", "graph", "import", "integrations", "chat"];
 const groupColorOptions = ["#66e7ff", "#a993ff", "#ffd166", "#60f2d5", "#ff7aa8", "#31d17f"];
 type LandingMode = "personal" | "hub";
+type AuthLoginHandler = (email: string, importedContacts?: Contact[], targetView?: ViewKey) => void;
 
 const getLandingModeFromHash = (): LandingMode =>
   window.location.hash.toLowerCase().includes("hubs") ? "hub" : "personal";
@@ -237,6 +238,57 @@ const mergeContactsByEmailOrPhone = (contacts: Contact[]) => {
     keys.forEach((key) => seen.add(key));
     return !duplicate;
   });
+};
+
+const stampedTemplateContacts = (templates: Array<Omit<Contact, "id" | "createdAt" | "updatedAt">>) => {
+  const now = new Date().toISOString();
+  return templates.map((template) => ({
+    ...template,
+    id: uid("ct"),
+    createdAt: now,
+    updatedAt: now
+  }));
+};
+
+const contactFromImportedPartial = (
+  partial: Partial<Contact>,
+  options: {
+    fallbackName: string;
+    fallbackSource: Contact["source"];
+    notes: string;
+    extraTags?: string[];
+    groupIds?: string[];
+    customFields?: Contact["customFields"];
+  }
+): Contact => {
+  const now = new Date().toISOString();
+  const phones = partial.phones ?? [];
+  const ddd = partial.ddd || extractDdd(phones[0] ?? "");
+  const source = (partial.source as Contact["source"] | undefined) ?? options.fallbackSource;
+  return {
+    id: uid("ct"),
+    name: partial.name ?? options.fallbackName,
+    headline: partial.headline ?? "",
+    description: partial.description ?? "",
+    tags: unique([...(partial.tags ?? []), ...(options.extraTags ?? []), ddd ? `DDD ${ddd}` : ""].filter(Boolean)),
+    phones,
+    emails: partial.emails ?? [],
+    ddd,
+    source,
+    currentDemand: partial.currentDemand ?? "",
+    problemSolves: partial.problemSolves ?? "",
+    notes: partial.notes ?? options.notes,
+    links: partial.links ?? [],
+    isPublic: partial.isPublic ?? false,
+    linkedUserId: partial.linkedUserId,
+    groupIds: options.groupIds ?? partial.groupIds ?? [],
+    customFields: {
+      ...(partial.customFields ?? {}),
+      ...(options.customFields ?? {})
+    },
+    createdAt: now,
+    updatedAt: now
+  };
 };
 
 const fetchGoogleContactsAndCalendar = async (accessToken: string) => {
@@ -633,8 +685,16 @@ function App() {
     setState((current) => ({ ...current, customFields: [field, ...current.customFields] }));
   };
 
+  const startSession: AuthLoginHandler = (email, importedContacts = [], targetView = "dashboard") => {
+    setSession({ email: email || "usuario@grafy.local" });
+    if (importedContacts.length) {
+      addContacts(importedContacts);
+    }
+    setView(targetView);
+  };
+
   if (!session) {
-    return <AuthScreen onLogin={(email) => setSession({ email })} />;
+    return <AuthScreen onLogin={startSession} />;
   }
 
   return (
@@ -772,23 +832,28 @@ function AppShell(props: AppShellProps) {
   );
 }
 
-function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
+function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
   const [email, setEmail] = useState("lenin@grafy.local");
-  const [password, setPassword] = useState("grafy-demo");
   const [status, setStatus] = useState("");
+  const [googleImporting, setGoogleImporting] = useState(false);
+  const [appleVcardText, setAppleVcardText] = useState("");
+  const [appleIcsText, setAppleIcsText] = useState("");
   const [landingMode, setLandingMode] = useState<LandingMode>(() => getLandingModeFromHash());
   const googleClientConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+  const appleVcardPreview = useMemo(() => parseVcardContacts(appleVcardText), [appleVcardText]);
+  const appleCalendarPreview = useMemo(() => parseIcsCalendarContacts(appleIcsText), [appleIcsText]);
+  const applePreviewCount = appleVcardPreview.length + appleCalendarPreview.length;
   const landingCopy = {
     personal: {
       navLabel: "Empresários",
       hash: "#/empresarios",
       headlineA: "Seu networking,",
-      headlineB: "organizado para gerar negócios",
+      headlineB: "montado a partir dos seus contatos",
       body:
-        "Entre com sua conta, importe Google Contacts, Agenda, CSV ou vCard Apple e transforme contatos soltos em oportunidades, parceiros, fornecedores e clientes potenciais.",
+        "Conecte Google Contacts e Agenda logo no início, ou importe Apple vCard/.ics. O Grafy organiza nomes, telefones, DDDs, empresas, cargos, demandas e oportunidades em uma rede privada.",
       previewTitle: "Mapa privado do empresário",
       previewSubtitle: "Clientes, parceiros, fornecedores, DDDs e demandas",
-      proof: ["dados privados", "Google + Apple", "oportunidades"],
+      proof: ["Google Contacts", "Apple vCard/.ics", "dados privados"],
       cards: [
         { icon: ContactRound, label: "Base pessoal", value: "Contatos, telefones, emails, DDD e histórico de origem" },
         { icon: Network, label: "Grafo privado", value: "Veja cargos, áreas, tags e caminhos de introdução" },
@@ -801,12 +866,12 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
       navLabel: "Hubs e eventos",
       hash: "#/hubs-eventos",
       headlineA: "Sua comunidade,",
-      headlineB: "conectada por inteligência",
+      headlineB: "pronta para conectar pessoas",
       body:
-        "Para hubs, eventos e empresas que querem importar participantes, criar grupos compartilhados e revelar conexões úteis antes, durante e depois dos encontros.",
+        "Para hubs, eventos e empresas que querem carregar uma base de participantes, criar grupos compartilhados e mostrar quem deve conversar com quem.",
       previewTitle: "Grafo compartilhado do hub",
       previewSubtitle: "Membros, patrocinadores, palestrantes e grupos",
-      proof: ["multiusuário", "grupos com cores", "curadoria de matches"],
+      proof: ["base compartilhada", "grupos com cores", "permissões"],
       cards: [
         { icon: Users, label: "Base do grupo", value: "Participantes, membros, empresas e campos customizados" },
         { icon: CalendarClock, label: "Eventos", value: "Agenda, origem do encontro, follow-up e relacionamento" },
@@ -844,15 +909,104 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    onLogin(email || "usuario@grafy.local");
+    onLogin(email || "usuario@grafy.local", [], "dashboard");
   };
 
-  const handleGoogleLogin = () => {
+  const buildAppleOnboardingContacts = () => [
+    ...appleVcardPreview.map((partial) =>
+      contactFromImportedPartial(partial, {
+        fallbackName: "Contato Apple sem nome",
+        fallbackSource: "Apple Contacts",
+        notes: "Importado no onboarding via vCard do Apple Contacts/iCloud.",
+        extraTags: ["Apple Contacts"],
+        customFields: { origemAgenda: "Apple Contacts" }
+      })
+    ),
+    ...appleCalendarPreview.map((partial) =>
+      contactFromImportedPartial(partial, {
+        fallbackName: "Participante Apple Agenda",
+        fallbackSource: "Apple Calendar",
+        notes: "Importado no onboarding via arquivo .ics da Apple Agenda/iCloud Calendar.",
+        extraTags: ["Apple Calendar", "agenda"],
+        groupIds: ["grp_eventos"],
+        customFields: { origemAgenda: "Apple Calendar" }
+      })
+    )
+  ];
+
+  const handleTextFile = (
+    event: React.ChangeEvent<HTMLInputElement>,
+    setter: React.Dispatch<React.SetStateAction<string>>,
+    label: string
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setter(String(reader.result ?? ""));
+      setStatus(`${label} carregado. Revise o preview e entre importando os contatos.`);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleGoogleLogin = async () => {
     if (!googleClientConfigured) {
-      setStatus("Google ainda não está configurado neste ambiente. Adicione VITE_GOOGLE_CLIENT_ID e backend OAuth para ativar login, Contacts e Agenda reais.");
+      const contacts = stampedTemplateContacts(googlePreviewContactTemplates);
+      setStatus("Este deploy não tem VITE_GOOGLE_CLIENT_ID. Entrei com amostra Google para demonstrar o fluxo; em produção o botão abre OAuth real.");
+      onLogin(email || "usuario-google@grafy.local", contacts, "dashboard");
       return;
     }
-    setStatus("Cliente Google detectado. A próxima etapa é conectar OAuth seguro com Supabase, People API e Calendar API.");
+    setGoogleImporting(true);
+    setStatus("Abrindo consentimento Google para Contacts e Agenda...");
+    try {
+      await loadGoogleIdentityScript();
+      const tokenClient = window.google?.accounts?.oauth2?.initTokenClient({
+        client_id: String(import.meta.env.VITE_GOOGLE_CLIENT_ID),
+        scope: GOOGLE_IMPORT_SCOPES,
+        callback: async (response) => {
+          if (response.error || !response.access_token) {
+            setStatus(response.error_description || "Google não retornou token de acesso.");
+            setGoogleImporting(false);
+            return;
+          }
+          try {
+            setStatus("Importando Google Contacts e Agenda autorizados...");
+            const contacts = await fetchGoogleContactsAndCalendar(response.access_token);
+            onLogin(email || "usuario-google@grafy.local", contacts, "dashboard");
+          } catch (error) {
+            setStatus(error instanceof Error ? error.message : "Falha ao importar dados do Google.");
+            setGoogleImporting(false);
+          }
+        },
+        error_callback: (error) => {
+          setStatus(`Falha no OAuth Google: ${String(error)}`);
+          setGoogleImporting(false);
+        }
+      });
+      if (!tokenClient) {
+        setStatus("Google Identity Services não ficou disponível neste navegador.");
+        setGoogleImporting(false);
+        return;
+      }
+      tokenClient.requestAccessToken({ prompt: "consent" });
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Não foi possível iniciar OAuth Google.");
+      setGoogleImporting(false);
+    }
+  };
+
+  const handleAppleLogin = () => {
+    const contacts = buildAppleOnboardingContacts();
+    if (!contacts.length) {
+      setStatus("Escolha um arquivo .vcf do Apple Contacts ou .ics da Apple Agenda antes de entrar importando.");
+      return;
+    }
+    onLogin(email || "usuario-apple@grafy.local", contacts, "dashboard");
+  };
+
+  const handleAppleSampleLogin = () => {
+    const contacts = stampedTemplateContacts(applePreviewContactTemplates);
+    onLogin(email || "usuario-apple@grafy.local", contacts, "dashboard");
   };
 
   return (
@@ -881,7 +1035,7 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
             ))}
           </div>
           <span>Privado por padrão</span>
-          <span>Google + Apple ready</span>
+          <span>Google Contacts + Apple vCard</span>
           <span>PWA mobile-first</span>
         </div>
       </header>
@@ -947,42 +1101,71 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
           <form className="auth-card" onSubmit={submit}>
             <div className="auth-card-head">
               <div>
-                <h2>Entrar no protótipo</h2>
-                <p>Use seu email para criar um workspace local de teste neste navegador.</p>
+                <h2>Monte sua rede no primeiro acesso</h2>
+                <p>Conecte Google para importar contatos e agenda, ou carregue arquivos Apple antes de abrir o workspace.</p>
               </div>
               <span className="status-dot live" />
             </div>
-            <button className="google-button" type="button" onClick={handleGoogleLogin}>
+            <button className="google-button connector-first-button" type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
               <Globe2 size={18} />
-              Continuar com Google
-              <small>{googleClientConfigured ? "configurado" : "não configurado"}</small>
+              {googleImporting ? "Conectando Google..." : "Conectar Google e criar workspace"}
+              <small>{googleClientConfigured ? "OAuth real" : "demo sem Client ID"}</small>
             </button>
-            <div className="auth-divider"><span>ou entre com email</span></div>
+            <div className="apple-onboarding">
+              <div className="onboarding-source-card">
+                <strong>Apple Contacts</strong>
+                <small>Carregue o `.vcf` exportado do iCloud/Contatos.</small>
+                <input
+                  className="file-input"
+                  type="file"
+                  accept=".vcf,text/vcard,text/x-vcard"
+                  onChange={(event) => handleTextFile(event, setAppleVcardText, "vCard Apple")}
+                />
+              </div>
+              <div className="onboarding-source-card">
+                <strong>Apple Agenda</strong>
+                <small>Carregue `.ics` para transformar participantes em contexto.</small>
+                <input
+                  className="file-input"
+                  type="file"
+                  accept=".ics,text/calendar"
+                  onChange={(event) => handleTextFile(event, setAppleIcsText, "Agenda Apple")}
+                />
+              </div>
+            </div>
+            <div className="onboarding-preview-row">
+              <span>{applePreviewCount ? `${applePreviewCount} contato(s) Apple prontos` : "Apple no web usa arquivos .vcf/.ics"}</span>
+              <button className="secondary-button compact" type="button" onClick={handleAppleLogin} disabled={!applePreviewCount}>
+                <Upload size={16} />
+                Entrar importando Apple
+              </button>
+              <button className="secondary-button compact" type="button" onClick={handleAppleSampleLogin}>
+                <CalendarClock size={16} />
+                Usar amostra Apple
+              </button>
+            </div>
+            <div className="auth-divider"><span>identificação do workspace</span></div>
             <label>
-              Email
+              Email do usuário
               <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="voce@empresa.com" />
-            </label>
-            <label>
-              Senha
-              <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" placeholder="sua senha" />
             </label>
             <button className="primary-button" type="submit">
               <KeyRound size={18} />
-              Criar / entrar
+              Entrar sem importar agora
             </button>
-            <button className="secondary-button" type="button" onClick={() => onLogin(email || "usuario@grafy.local")}>
+            <button className="secondary-button" type="button" onClick={() => onLogin(email || "usuario@grafy.local", stampedTemplateContacts(googlePreviewContactTemplates), "dashboard")}>
               <Mail size={18} />
-              Entrar sem senha real
+              Entrar com dados de demonstração
             </button>
             <p className="prototype-note">
-              Ambiente demonstrativo: dados ficam somente neste navegador. Login real com Supabase/Google entra na próxima fase.
+              Ambiente demonstrativo: dados ficam neste navegador. Em produção, tokens Google ficam no backend e Apple direto exige app nativo.
             </p>
             {status && <p className="auth-status">{status}</p>}
           </form>
         </div>
       </motion.section>
 
-      <SpecificLandingPage onModeChange={changeLandingMode} onLogin={() => onLogin(email || "usuario@grafy.local")} />
+      <SpecificLandingPage onModeChange={changeLandingMode} onLogin={() => onLogin(email || "usuario@grafy.local", [], "dashboard")} />
     </div>
   );
 }
@@ -994,15 +1177,15 @@ function PersonalLandingPage({ onLogin, onModeChange }: { onLogin: () => void; o
       <section className="audience-page-section personal">
         <div>
           <span className="context public">Página 1 · Empresário</span>
-          <h2>Para quem quer transformar contatos pessoais em pipeline de oportunidades.</h2>
+          <h2>Para organizar contatos próprios e encontrar oportunidades reais.</h2>
           <p>
-            O empresário entra com Google, importa contatos, agenda, CSV ou Apple vCard e passa a enxergar clientes
-            potenciais, fornecedores, parceiros de negócio, decisores por DDD e pessoas que resolvem problemas específicos.
+            O usuário conecta Google ou importa Apple/CSV, revisa a base e passa a enxergar clientes potenciais,
+            fornecedores, parceiros, decisores por DDD e pessoas que resolvem problemas específicos.
           </p>
           <div className="audience-actions">
             <button className="primary-button glow-button" onClick={onLogin}>
               <ContactRound size={18} />
-              Montar minha rede privada
+              Conectar minha rede
             </button>
             <button className="secondary-button" onClick={() => onModeChange("hub")}>
               <Users size={18} />
@@ -1012,10 +1195,10 @@ function PersonalLandingPage({ onLogin, onModeChange }: { onLogin: () => void; o
         </div>
         <div className="audience-workflow">
           {[
-            ["1", "Importar agenda", "Google Contacts, Google Agenda, Apple vCard, Apple Agenda .ics e CSV."],
-            ["2", "Qualificar contexto", "Área, cargo, DDD, empresa, demanda, problema que resolve e origem."],
-            ["3", "Encontrar pessoas certas", "Clientes potenciais, parceiros comerciais, prestadores e decisores."],
-            ["4", "Acionar oportunidades", "Chat e grafo indicam por que alguém apareceu e qual introdução faz sentido."]
+            ["1", "Conectar fontes", "Google Contacts, Google Agenda, Apple vCard, Apple Agenda .ics e CSV."],
+            ["2", "Revisar dados", "Nome, telefone, email, DDD, empresa, cargo, demanda e origem."],
+            ["3", "Filtrar oportunidades", "Clientes potenciais, parceiros comerciais, prestadores e decisores."],
+            ["4", "Agir com contexto", "Grafo e chat mostram por que a pessoa apareceu e qual abordagem faz sentido."]
           ].map(([step, title, body]) => (
             <article key={step}>
               <span>{step}</span>
@@ -1036,10 +1219,10 @@ function HubLandingPage({ onLogin, onModeChange }: { onLogin: () => void; onMode
       <section className="audience-page-section hub">
         <div>
           <span className="context group">Página 2 · Hubs, eventos e empresas</span>
-          <h2>Para quem precisa conectar pessoas dentro de uma base compartilhada.</h2>
+          <h2>Para operar uma base compartilhada com permissões e curadoria.</h2>
           <p>
-            Hubs, eventos, empresas e comunidades podem importar uma base de participantes, criar grupos por trilha,
-            tema, empresa ou mesa de negócios, e permitir que membros descubram conexões úteis sem expor dados privados.
+            Hubs, eventos, empresas e comunidades importam participantes, criam grupos por trilha, tema ou mesa de
+            negócios, e ajudam membros a encontrar conexões úteis sem expor dados privados de cada usuário.
           </p>
           <div className="audience-actions">
             <button className="primary-button glow-button" onClick={onLogin}>
@@ -1057,7 +1240,7 @@ function HubLandingPage({ onLogin, onModeChange }: { onLogin: () => void; onMode
             ["1", "Base do grupo", "CSV corporativo, lista de inscritos, agenda do evento, Meetup futuro ou OpenAPI."],
             ["2", "Governança", "Admins, membros, campos customizados, opt-in público e permissões por tenant."],
             ["3", "Curadoria", "Matches por área, cargo, demanda, solução, DDD, empresa, interesse e trilha."],
-            ["4", "Comunidade viva", "Grafo do grupo, Rede pública opcional, chat de busca e follow-up pós-evento."]
+            ["4", "Follow-up", "Grafo do grupo, Rede pública opcional, chat de busca e histórico pós-evento."]
           ].map(([step, title, body]) => (
             <article key={step}>
               <span>{step}</span>
@@ -1083,24 +1266,24 @@ function LandingSections({
   const sections = [
     {
       icon: ContactRound,
-      title: "Contatos deixam de ser uma lista fria",
-      body: "Cada pessoa carrega demandas, problemas que resolve, tags, origem, DDD, grupos e vínculos públicos. O Grafy transforma isso em contexto navegável.",
-      stat: "12 contatos demo",
-      meta: "dedupe, tags e campos"
+      title: "Importação simples logo no começo",
+      body: "Google entra por OAuth. Apple entra por vCard/.ics no web. CSV continua disponível para bases de eventos e empresas.",
+      stat: "Google + Apple + CSV",
+      meta: "preview antes de salvar"
     },
     {
       icon: Network,
-      title: "O grafo vira uma camada de leitura da rede",
-      body: "Pessoas, tags, fontes, grupos e oportunidades aparecem como nós conectados. O usuário filtra, aproxima, clica e entende caminhos de introdução.",
-      stat: "38+ relações",
-      meta: "matches e filtros"
+      title: "Dados viram relações visíveis",
+      body: "Pessoas, tags, DDDs, fontes, grupos, demandas e soluções aparecem no grafo com filtros cumulativos.",
+      stat: "pessoas + contexto",
+      meta: "zoom, pan e filtros"
     },
     {
       icon: Bot,
-      title: "Busca e copiloto ajudam a achar a pessoa certa",
-      body: "Perguntas como quem resolve limpeza, quem busca investimento ou quem está em determinado DDD retornam contatos relevantes com explicação.",
-      stat: "busca estruturada",
-      meta: "pronto para IA"
+      title: "Busca responde perguntas de networking",
+      body: "O usuário pergunta quem resolve algo, quem busca algo, quem é decisor ou quem está em um DDD específico.",
+      stat: "resposta com cards",
+      meta: "IA futura com confirmação"
     }
   ];
   const customerPaths = [
@@ -1108,28 +1291,28 @@ function LandingSections({
       mode: "personal" as const,
       title: "Empresário e conector individual",
       subtitle: "B2C",
-      body: "Organiza contatos próprios, encontra clientes potenciais, prestadores, parceiros e pessoas certas para introduções.",
-      points: ["Google Contacts", "Google Agenda", "Apple vCard", "DDD e localização", "grafo privado"]
+      body: "Organiza a própria rede para achar clientes, fornecedores, parceiros e pessoas certas para introduções.",
+      points: ["Google Contacts", "Google Agenda", "Apple vCard/.ics", "DDD", "grafo privado"]
     },
     {
       mode: "hub" as const,
       title: "Hub, evento ou empresa",
       subtitle: "B2B / B2B2C",
-      body: "Carrega uma base de membros ou participantes, cria grupos compartilhados e ajuda a comunidade se conectar com contexto.",
-      points: ["importação em lote", "agenda e participantes", "grupos com permissões", "curadoria de matches"]
+      body: "Carrega membros ou participantes, cria grupos compartilhados e facilita conexões dentro da comunidade.",
+      points: ["importação em lote", "participantes", "grupos", "permissões", "curadoria"]
     }
   ];
   const modeExplainers = {
     personal: {
       title: "Landing para empresários",
       body:
-        "Foco em organizar a própria rede, puxar contatos pessoais autorizados, qualificar por cargo, área, DDD e demanda, e encontrar oportunidades comerciais.",
+        "Foco em conectar fontes pessoais, revisar contatos, qualificar cargo/área/DDD/demanda e encontrar oportunidades comerciais.",
       cta: "Ver modo hubs e eventos"
     },
     hub: {
       title: "Landing para hubs, eventos e empresas",
       body:
-        "Foco em comunidades, bases compartilhadas, importação de participantes, grupos com cores e curadoria de conexões entre membros.",
+        "Foco em bases compartilhadas, importação de participantes, grupos com permissões e curadoria de conexões entre membros.",
       cta: "Ver modo empresários"
     }
   } satisfies Record<LandingMode, { title: string; body: string; cta: string }>;
@@ -1225,11 +1408,11 @@ function LandingSections({
         transition={{ duration: 0.65, ease: "easeOut" }}
       >
         <div className="visual-copy">
-          <span className="context group">experiência visual</span>
-          <h2>O fundo acompanha o mouse para a rede parecer viva.</h2>
+          <span className="context group">produto em uso</span>
+          <h2>Depois da importação, a rede fica navegável.</h2>
           <p>
-            A camada de partículas usa canvas leve, conexões dinâmicas e um spotlight que reage ao cursor. Isso conversa
-            com a ideia central do produto: uma rede que responde quando você explora.
+            O usuário sai de uma agenda solta para uma leitura prática: quem é decisor, quem compra, quem resolve,
+            quem está perto e quais grupos aproximam essas pessoas.
           </p>
           <button className="primary-button glow-button" onClick={onLogin}>
             <Sparkles size={18} />

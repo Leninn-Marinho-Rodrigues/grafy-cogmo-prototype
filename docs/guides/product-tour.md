@@ -14,7 +14,7 @@ Versão em vídeo curto: [grafy-demo-flow.mp4](../assets/grafy-demo-flow.mp4)
 
 ![Landing de hubs e eventos](../assets/grafy-09-landing-hub.png)
 
-A entrada mostra a proposta central: transformar contatos em um mapa vivo de networking. O visual usa fundo animado, partículas conectadas e uma área de login demonstrativa.
+A entrada mostra a proposta central sem obrigar o usuário a procurar importação depois: conectar Google ou carregar Apple logo no primeiro acesso para abrir o workspace com contatos.
 
 Pontos para comentar:
 
@@ -23,7 +23,7 @@ Pontos para comentar:
 - O topo permite alternar entre duas páginas reais: `#/empresarios` para **Empresários** e `#/hubs-eventos` para **Hubs e eventos**.
 - A versão B2C fala de rede privada, oportunidades, clientes, parceiros e fornecedores.
 - A versão B2B/B2B2C fala de participantes, grupos compartilhados, comunidades e curadoria de matches.
-- O login real com Google/Supabase está planejado para a próxima fase.
+- O onboarding já tenta Google real quando `VITE_GOOGLE_CLIENT_ID` está configurado; login persistente com Supabase fica para a próxima fase.
 - O modo atual permite testar sem conta real.
 - A proposta agora deixa claros dois usos: empresário individual e hub/evento/empresa.
 
@@ -107,7 +107,7 @@ Em **Ajustes**, o protótipo organiza conectores por status e deixa claro o cami
 
 O produto não promete scraping logado: toda integração real precisa de OAuth, preview, revisão de duplicados e aprovação antes de gravar.
 
-Na tela de **Importar**, o bloco **Google Data Hub** permite importar uma amostra demonstrativa de Contacts + Agenda. Ela adiciona contatos de calendário, participantes de eventos, DDD/localidade e contexto de origem para validar o comportamento no grafo sem fingir integração real.
+No onboarding e na tela de **Importar**, o bloco **Google Data Hub** tenta OAuth real quando existe `VITE_GOOGLE_CLIENT_ID`. Sem essa credencial, o protótipo usa uma amostra demonstrativa de Contacts + Agenda para validar grafo, DDD/localidade e origem sem fingir integração ativa.
 
 O bloco **Apple Contacts + Calendar** permite colar/carregar um `.vcf` exportado do iCloud/Contatos e um `.ics` exportado de agenda. Também há uma amostra Apple com contatos e evento para demonstrar como essa origem aparece no grafo, nos filtros e na base de contatos.
 

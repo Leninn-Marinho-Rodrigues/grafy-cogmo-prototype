@@ -35,8 +35,9 @@ O protótipo agora demonstra a entrada de dados que o produto precisa ter em pro
 
 - **B2C:** empresário/conector individual importa Google Contacts, CSV e agenda própria para achar clientes, fornecedores, parceiros e oportunidades.
 - **B2B/B2B2C:** hub, evento, empresa ou comunidade importa uma base de membros/participantes, cria grupos compartilhados e usa o grafo para curadoria de conexões.
+- **Onboarding conector-first:** a primeira entrada do usuário já oferece Google Contacts + Google Agenda ou Apple `.vcf/.ics`, para que o workspace abra com contatos reais quando houver consentimento/importação.
 - **Google Data Hub:** quando `VITE_GOOGLE_CLIENT_ID` existe, a UI abre OAuth e lê Google People API + Google Calendar API no navegador; em produção, o mesmo fluxo deve passar por backend/Edge Function para guardar tokens com segurança.
-- **Apple Contacts + Calendar:** a UI aceita vCard/.vcf para contatos e `.ics` para agenda como caminhos web seguros, além de mostrar o desenho nativo futuro com Contacts framework e EventKit.
+- **Apple Contacts + Calendar:** no web, Sign in with Apple não entrega a lista de contatos do iCloud; por isso a UI aceita vCard/.vcf para contatos e `.ics` para agenda. Para app nativo futuro, usar Contacts framework e EventKit.
 - **Localidade por DDD:** telefones continuam gerando DDD; o DDD agora também aparece como localidade/região para filtro, grafo, detalhe do contato e chat.
 
 ## Mapa dos arquivos principais
@@ -159,7 +160,7 @@ Entidades recomendadas:
 
 ### Integrações
 
-- **Google Contacts:** via Google People API, com OAuth, `people.connections.list`, `personFields` mínimos, preview e deduplicação antes de salvar.
+- **Google Contacts:** via Google People API, com OAuth no onboarding, `people.connections.list`, `personFields` mínimos, preview e deduplicação antes de salvar.
 - **Google Calendar:** via Calendar API, com `events.list` para eventos autorizados, participantes, origem do encontro, local e follow-up.
 - **Apple Contacts:** no web MVP, importar vCard/.vcf exportado do iCloud/Contatos. Em app nativo, usar Contacts framework/CNContactStore com permissão, preview e deduplicação.
 - **Apple Calendar:** no web MVP, importar `.ics` exportado da agenda. Em app nativo, usar EventKit para eventos e participantes autorizados.

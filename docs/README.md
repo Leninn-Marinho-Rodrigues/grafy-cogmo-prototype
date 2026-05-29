@@ -2,7 +2,7 @@
 
 Esta pasta organiza materiais de produto, arquitetura, pesquisa e validação do protótipo.
 
-Atualização desta fase: o protótipo passou a ter duas páginas de landing por rota hash: `#/empresarios` para o usuário B2C e `#/hubs-eventos` para hubs/eventos/empresas. A tela de importação agora mostra Google Data Hub com OAuth real opcional, Apple Contacts por vCard, Apple Agenda por `.ics`, DDD/localidade e preview antes de gravar contatos.
+Atualização desta fase: o protótipo passou a ter duas páginas de landing por rota hash: `#/empresarios` para o usuário B2C e `#/hubs-eventos` para hubs/eventos/empresas. O onboarding agora começa pelos conectores: Google Contacts + Google Agenda quando há `VITE_GOOGLE_CLIENT_ID`, Apple Contacts por vCard, Apple Agenda por `.ics`, DDD/localidade e preview antes de gravar contatos.
 
 ## Guias principais
 
