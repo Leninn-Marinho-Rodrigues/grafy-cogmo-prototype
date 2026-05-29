@@ -42,10 +42,10 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 
 | Área | O que demonstra |
 | --- | --- |
-| Landing/login | Duas experiências de entrada: empresários B2C e hubs/eventos/empresas B2B/B2B2C, com animação de rede e sessão demonstrativa local. |
+| Landing/login | Duas páginas de entrada: `#/empresarios` para B2C e `#/hubs-eventos` para B2B/B2B2C, com narrativa, CTA e fluxo próprios. |
 | Dashboard | Métricas da base, atalhos, oportunidades e visão geral do workspace. |
 | Contatos | CRUD inicial, tags, demandas, problema que resolve, links, grupos e status público/privado. |
-| Importação | CSV funcional, importação manual, Google Data Hub com Contacts + Agenda e Apple Contacts por vCard, com amostras para validar o fluxo real. |
+| Importação | CSV funcional, importação manual, Google Data Hub com OAuth real opcional para Contacts + Agenda, Apple Contacts por `.vcf` e Apple Agenda por `.ics`. |
 | Grafo | Nós de contatos, tags, DDDs/localidade, fontes, grupos, demandas e soluções; pan, zoom, filtros cumulativos e inspetor lateral. |
 | Rede pública | Perfis opt-in, cards públicos, filtros e separação clara da base privada. |
 | Grupos | Board de pastas/grupos com tags, cores, contatos e impacto visual no grafo para hubs, eventos e empresas. |
@@ -55,25 +55,26 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 
 ## Tour visual
 
-| Landing | Dashboard |
+| Landing empresários | Landing hubs/eventos |
 | --- | --- |
-| ![Landing do Grafy](docs/assets/grafy-01-landing.png) | ![Dashboard do Grafy](docs/assets/grafy-02-dashboard.png) |
+| ![Landing para empresários no Grafy](docs/assets/grafy-01-landing.png) | ![Landing para hubs e eventos no Grafy](docs/assets/grafy-09-landing-hub.png) |
 
-| Grafo | Rede pública |
+| Dashboard | Grafo |
 | --- | --- |
-| ![Grafo do Grafy](docs/assets/grafy-03-grafo.png) | ![Rede pública do Grafy](docs/assets/grafy-04-rede-publica.png) |
+| ![Dashboard do Grafy](docs/assets/grafy-02-dashboard.png) | ![Grafo do Grafy](docs/assets/grafy-03-grafo.png) |
 
-| Chat | Perfil e visibilidade |
+| Rede pública | Chat |
 | --- | --- |
-| ![Chat do Grafy](docs/assets/grafy-05-chat.png) | ![Perfil do Grafy](docs/assets/grafy-06-perfil.png) |
+| ![Rede pública do Grafy](docs/assets/grafy-04-rede-publica.png) | ![Chat do Grafy](docs/assets/grafy-05-chat.png) |
+
+| Perfil e visibilidade | Importação Google/Apple |
+| --- | --- |
+| ![Perfil do Grafy](docs/assets/grafy-06-perfil.png) | ![Importação Google e Apple no Grafy](docs/assets/grafy-08-import-google-apple.png) |
 
 | Mobile |
 | --- |
 | ![Versão mobile do Grafy](docs/assets/grafy-07-mobile.png) |
 
-| Importação Google/Apple |
-| --- |
-| ![Importação Google e Apple no Grafy](docs/assets/grafy-08-import-google-apple.png) |
 
 ## Arquitetura resumida
 
@@ -154,24 +155,26 @@ npm run preview -- --port 4176
 
 Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides/demo-script.md). A versão publicada é pensada para teste de navegação e apresentação do conceito:
 
-1. Abrir a landing de empresários ou hubs/eventos pelo seletor do topo.
+1. Abrir a landing de empresários ou hubs/eventos pelo seletor do topo ou pelos links diretos.
 2. Entrar com o modo demonstrativo.
-3. Ir em **Importar** e testar Google Data Hub, Apple vCard ou CSV.
+3. Ir em **Importar** e testar Google Data Hub, Apple vCard, Apple Agenda `.ics` ou CSV.
 4. Mostrar dashboard, grafo, rede pública, grupos e chat.
 5. Explicar que os dados ficam no navegador.
 6. Apagar dados de teste em **Ajustes** quando necessário.
 
 Links úteis:
 
-- [Landing empresários](https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/#empresarios)
-- [Landing hubs, eventos e empresas](https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/#hubs-eventos)
+- [Landing empresários](https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/#/empresarios)
+- [Landing hubs, eventos e empresas](https://leninn-marinho-rodrigues.github.io/grafy-cogmo-prototype/#/hubs-eventos)
 
 ## Limites importantes
 
 - O login atual é demonstrativo; autenticação real entra na fase Supabase/Google.
 - Dados de teste são persistidos no navegador de cada pessoa, não em um banco compartilhado.
-- Google Contacts, Google Calendar, Apple Contacts, Apple Calendar, LinkedIn, Meetup, Instagram e X/Twitter aparecem como direção técnica e conectores preparados, não como coleta real em produção.
-- Apple Contacts funciona no protótipo por vCard/.vcf colado ou carregado; Apple Calendar real exige app nativo ou integração autorizada com EventKit.
+- Google Contacts e Google Calendar tentam OAuth real quando `VITE_GOOGLE_CLIENT_ID` está configurado; sem isso, o protótipo usa amostras demonstrativas.
+- Apple Contacts funciona no web por vCard/.vcf colado ou carregado.
+- Apple Agenda funciona no web por arquivo/texto `.ics`; acesso nativo direto a agenda/contatos Apple exige app nativo ou wrapper mobile com Contacts/EventKit.
+- LinkedIn, Meetup, Instagram e X/Twitter aparecem como direção técnica e conectores preparados, não como coleta real em produção.
 - Enriquecimento externo deve ser feito com APIs oficiais, consentimento e revisão humana; o sistema não deve depender de scraping logado.
 
 ## Próximas fases

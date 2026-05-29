@@ -30,7 +30,7 @@ Mostre a tela inicial e comente:
 - Visual premium e PWA-first.
 - Fundo de rede interativo.
 - Produto orientado a networking, não a uma profissão específica.
-- Alternância entre **Empresários** e **Hubs e eventos** no topo.
+- Duas páginas: `#/empresarios` e `#/hubs-eventos`.
 - B2C: rede privada do empresário para clientes, parceiros e fornecedores.
 - B2B/B2B2C: base compartilhada para eventos, hubs, comunidades e empresas.
 
@@ -46,7 +46,8 @@ Comente:
 Abra **Importar** e demonstre:
 
 - **Google Data Hub:** importa amostra de Google Contacts + Agenda.
-- **Apple Contacts + Calendar:** importa amostra Apple ou um `.vcf` exportado do iCloud/Contatos.
+- **Google real opcional:** se `VITE_GOOGLE_CLIENT_ID` estiver configurado, o botão tenta OAuth e lê Contacts + Agenda autorizados.
+- **Apple Contacts + Calendar:** importa amostra Apple, `.vcf` do iCloud/Contatos ou `.ics` da Apple Agenda.
 - **CSV:** mantém o caminho simples para bases corporativas e testes rápidos.
 
 ### 3. Dashboard
@@ -134,11 +135,11 @@ Na aba **Ajustes**, use **Apagar conta de teste**. Isso limpa o workspace salvo 
 
 ### Já puxa contatos reais do Google?
 
-Ainda não neste protótipo. A interface e a arquitetura estão preparadas para Google People API com OAuth e backend seguro.
+Sim, se o deploy for gerado com `VITE_GOOGLE_CLIENT_ID` válido e origem autorizada no Google Cloud. Sem essa variável, o protótipo mantém amostras demonstrativas. Em produção, o ideal é mover tokens para backend/Edge Function.
 
 ### Já puxa Apple Contacts?
 
-No protótipo web, sim por arquivo vCard/.vcf ou texto colado. A coleta nativa direta de Apple Contacts e Apple Calendar exige app nativo/wrapper com Contacts framework e EventKit.
+No protótipo web, sim por arquivo vCard/.vcf ou texto colado. Apple Agenda também entra por `.ics`. A coleta nativa direta de Apple Contacts e Apple Calendar exige app nativo/wrapper com Contacts framework e EventKit.
 
 ### Dá para puxar LinkedIn?
 

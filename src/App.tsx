@@ -54,6 +54,7 @@ import {
   makeAssistantAnswer,
   mergeContacts,
   parseCsvContacts,
+  parseIcsCalendarContacts,
   parseVcardContacts,
   searchContacts,
   splitList,
@@ -92,6 +93,175 @@ type LandingMode = "personal" | "hub";
 
 const getLandingModeFromHash = (): LandingMode =>
   window.location.hash.toLowerCase().includes("hubs") ? "hub" : "personal";
+
+type GoogleTokenResponse = {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+};
+
+type GoogleTokenClient = {
+  requestAccessToken: (options?: { prompt?: string }) => void;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        oauth2?: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            callback: (response: GoogleTokenResponse) => void;
+            error_callback?: (error: unknown) => void;
+          }) => GoogleTokenClient;
+        };
+      };
+    };
+  }
+}
+
+const GOOGLE_IMPORT_SCOPES = [
+  "https://www.googleapis.com/auth/contacts.readonly",
+  "https://www.googleapis.com/auth/calendar.readonly"
+].join(" ");
+
+let googleIdentityScriptPromise: Promise<void> | null = null;
+
+const loadGoogleIdentityScript = () => {
+  if (window.google?.accounts?.oauth2) return Promise.resolve();
+  if (googleIdentityScriptPromise) return googleIdentityScriptPromise;
+  googleIdentityScriptPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Não foi possível carregar Google Identity Services.")), { once: true });
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Não foi possível carregar Google Identity Services."));
+    document.head.appendChild(script);
+  });
+  return googleIdentityScriptPromise;
+};
+
+type GooglePerson = {
+  names?: Array<{ displayName?: string; givenName?: string; familyName?: string }>;
+  emailAddresses?: Array<{ value?: string }>;
+  phoneNumbers?: Array<{ value?: string }>;
+  organizations?: Array<{ name?: string; title?: string }>;
+  biographies?: Array<{ value?: string }>;
+};
+
+type GoogleCalendarEvent = {
+  summary?: string;
+  location?: string;
+  start?: { dateTime?: string; date?: string };
+  organizer?: { displayName?: string; email?: string };
+  attendees?: Array<{ displayName?: string; email?: string; organizer?: boolean; responseStatus?: string }>;
+};
+
+const contactFromGooglePerson = (person: GooglePerson, now: string): Contact | null => {
+  const name = person.names?.[0]?.displayName || [person.names?.[0]?.givenName, person.names?.[0]?.familyName].filter(Boolean).join(" ");
+  const emails = unique((person.emailAddresses ?? []).map((email) => email.value ?? "").filter(Boolean));
+  const phones = unique((person.phoneNumbers ?? []).map((phone) => phone.value ?? "").filter(Boolean));
+  if (!name && !emails.length && !phones.length) return null;
+  const ddd = extractDdd(phones[0] ?? "");
+  const organization = person.organizations?.[0];
+  return {
+    id: uid("ct"),
+    name: name || emails[0] || phones[0] || "Contato Google",
+    headline: unique([organization?.title, organization?.name]).join(" · "),
+    description: person.biographies?.[0]?.value || "Contato importado do Google Contacts com consentimento do usuário.",
+    tags: unique(["Google Contacts", ddd ? `DDD ${ddd}` : "", organization?.name ? "empresa" : ""].filter(Boolean)),
+    phones,
+    emails,
+    ddd,
+    source: "Google Contacts",
+    currentDemand: "",
+    problemSolves: "",
+    notes: "Importado via Google People API no navegador. Em produção, tokens devem ficar no backend/Edge Function.",
+    links: [],
+    isPublic: false,
+    groupIds: [],
+    customFields: {
+      origemAgenda: "Google Contacts",
+      empresa: organization?.name ?? "",
+      cargo: organization?.title ?? ""
+    },
+    createdAt: now,
+    updatedAt: now
+  };
+};
+
+const contactFromGoogleAttendee = (event: GoogleCalendarEvent, attendee: NonNullable<GoogleCalendarEvent["attendees"]>[number], now: string): Contact | null => {
+  if (!attendee.email) return null;
+  const eventName = event.summary || "Evento Google Agenda";
+  return {
+    id: uid("ct"),
+    name: attendee.displayName || attendee.email.split("@")[0].replace(/[._-]+/g, " "),
+    headline: attendee.organizer ? `Organizador em ${eventName}` : `Participante de ${eventName}`,
+    description: `Participante importado da Google Agenda${event.location ? ` em ${event.location}` : ""}.`,
+    tags: unique(["Google Calendar", "agenda", "evento", event.location ?? "", eventName].filter(Boolean)),
+    phones: [],
+    emails: [attendee.email],
+    ddd: "",
+    source: "Google Calendar",
+    currentDemand: "",
+    problemSolves: "",
+    notes: "Importado via Google Calendar API com consentimento do usuário.",
+    links: [],
+    isPublic: false,
+    groupIds: ["grp_eventos"],
+    customFields: {
+      origemAgenda: "Google Calendar",
+      eventoOrigem: eventName,
+      localEvento: event.location ?? "",
+      dataEvento: event.start?.dateTime ?? event.start?.date ?? "",
+      statusAgenda: attendee.responseStatus ?? ""
+    },
+    createdAt: now,
+    updatedAt: now
+  };
+};
+
+const mergeContactsByEmailOrPhone = (contacts: Contact[]) => {
+  const seen = new Set<string>();
+  return contacts.filter((contact) => {
+    const keys = [...contact.emails.map((email) => `email:${email.toLowerCase()}`), ...contact.phones.map((phone) => `phone:${phone.replace(/\D/g, "")}`)].filter((key) => !key.endsWith(":"));
+    const duplicate = keys.some((key) => seen.has(key));
+    keys.forEach((key) => seen.add(key));
+    return !duplicate;
+  });
+};
+
+const fetchGoogleContactsAndCalendar = async (accessToken: string) => {
+  const headers = { Authorization: `Bearer ${accessToken}` };
+  const now = new Date().toISOString();
+  const timeMin = new Date(Date.now() - 1000 * 60 * 60 * 24 * 90).toISOString();
+  const timeMax = new Date(Date.now() + 1000 * 60 * 60 * 24 * 180).toISOString();
+  const [peopleResponse, calendarResponse] = await Promise.all([
+    fetch("https://people.googleapis.com/v1/people/me/connections?pageSize=200&personFields=names,emailAddresses,phoneNumbers,organizations,biographies", { headers }),
+    fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=80&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`, { headers })
+  ]);
+  if (!peopleResponse.ok) throw new Error(`Google Contacts retornou ${peopleResponse.status}.`);
+  if (!calendarResponse.ok) throw new Error(`Google Agenda retornou ${calendarResponse.status}.`);
+  const peopleData = await peopleResponse.json() as { connections?: GooglePerson[] };
+  const calendarData = await calendarResponse.json() as { items?: GoogleCalendarEvent[] };
+  const peopleContacts = (peopleData.connections ?? [])
+    .map((person) => contactFromGooglePerson(person, now))
+    .filter((contact): contact is Contact => Boolean(contact));
+  const calendarContacts = (calendarData.items ?? []).flatMap((event) =>
+    (event.attendees ?? [])
+      .map((attendee) => contactFromGoogleAttendee(event, attendee, now))
+      .filter((contact): contact is Contact => Boolean(contact))
+  );
+  return mergeContactsByEmailOrPhone([...peopleContacts, ...calendarContacts]);
+};
 
 function useStoredState<T>(key: string, fallback: T) {
   const [value, setValue] = useState<T>(() => {
@@ -611,7 +781,7 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
   const landingCopy = {
     personal: {
       navLabel: "Empresários",
-      hash: "#empresarios",
+      hash: "#/empresarios",
       headlineA: "Seu networking,",
       headlineB: "organizado para gerar negócios",
       body:
@@ -629,7 +799,7 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
     },
     hub: {
       navLabel: "Hubs e eventos",
-      hash: "#hubs-eventos",
+      hash: "#/hubs-eventos",
       headlineA: "Sua comunidade,",
       headlineB: "conectada por inteligência",
       body:
@@ -659,6 +829,7 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
     demand: string;
   }>;
   const activeCopy = landingCopy[landingMode];
+  const SpecificLandingPage = landingMode === "personal" ? PersonalLandingPage : HubLandingPage;
 
   useEffect(() => {
     const handleHashChange = () => setLandingMode(getLandingModeFromHash());
@@ -685,7 +856,7 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
   };
 
   return (
-    <div className="auth-page">
+    <div className={`auth-page auth-page-${landingMode}`}>
       <NetworkBackdrop className="auth-live-network" density={96} />
       <header className="auth-topbar">
         <button className="brand horizontal" aria-label="Grafy">
@@ -811,12 +982,92 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
         </div>
       </motion.section>
 
-      <LandingSections
-        mode={landingMode}
-        onModeChange={changeLandingMode}
-        onLogin={() => onLogin(email || "usuario@grafy.local")}
-      />
+      <SpecificLandingPage onModeChange={changeLandingMode} onLogin={() => onLogin(email || "usuario@grafy.local")} />
     </div>
+  );
+}
+
+function PersonalLandingPage({ onLogin, onModeChange }: { onLogin: () => void; onModeChange: (mode: LandingMode) => void }) {
+  return (
+    <>
+      <LandingSections mode="personal" onLogin={onLogin} onModeChange={onModeChange} />
+      <section className="audience-page-section personal">
+        <div>
+          <span className="context public">Página 1 · Empresário</span>
+          <h2>Para quem quer transformar contatos pessoais em pipeline de oportunidades.</h2>
+          <p>
+            O empresário entra com Google, importa contatos, agenda, CSV ou Apple vCard e passa a enxergar clientes
+            potenciais, fornecedores, parceiros de negócio, decisores por DDD e pessoas que resolvem problemas específicos.
+          </p>
+          <div className="audience-actions">
+            <button className="primary-button glow-button" onClick={onLogin}>
+              <ContactRound size={18} />
+              Montar minha rede privada
+            </button>
+            <button className="secondary-button" onClick={() => onModeChange("hub")}>
+              <Users size={18} />
+              Ver página para hubs
+            </button>
+          </div>
+        </div>
+        <div className="audience-workflow">
+          {[
+            ["1", "Importar agenda", "Google Contacts, Google Agenda, Apple vCard, Apple Agenda .ics e CSV."],
+            ["2", "Qualificar contexto", "Área, cargo, DDD, empresa, demanda, problema que resolve e origem."],
+            ["3", "Encontrar pessoas certas", "Clientes potenciais, parceiros comerciais, prestadores e decisores."],
+            ["4", "Acionar oportunidades", "Chat e grafo indicam por que alguém apareceu e qual introdução faz sentido."]
+          ].map(([step, title, body]) => (
+            <article key={step}>
+              <span>{step}</span>
+              <strong>{title}</strong>
+              <p>{body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </>
+  );
+}
+
+function HubLandingPage({ onLogin, onModeChange }: { onLogin: () => void; onModeChange: (mode: LandingMode) => void }) {
+  return (
+    <>
+      <LandingSections mode="hub" onLogin={onLogin} onModeChange={onModeChange} />
+      <section className="audience-page-section hub">
+        <div>
+          <span className="context group">Página 2 · Hubs, eventos e empresas</span>
+          <h2>Para quem precisa conectar pessoas dentro de uma base compartilhada.</h2>
+          <p>
+            Hubs, eventos, empresas e comunidades podem importar uma base de participantes, criar grupos por trilha,
+            tema, empresa ou mesa de negócios, e permitir que membros descubram conexões úteis sem expor dados privados.
+          </p>
+          <div className="audience-actions">
+            <button className="primary-button glow-button" onClick={onLogin}>
+              <Users size={18} />
+              Criar hub demonstrativo
+            </button>
+            <button className="secondary-button" onClick={() => onModeChange("personal")}>
+              <ContactRound size={18} />
+              Ver página para empresários
+            </button>
+          </div>
+        </div>
+        <div className="audience-workflow">
+          {[
+            ["1", "Base do grupo", "CSV corporativo, lista de inscritos, agenda do evento, Meetup futuro ou OpenAPI."],
+            ["2", "Governança", "Admins, membros, campos customizados, opt-in público e permissões por tenant."],
+            ["3", "Curadoria", "Matches por área, cargo, demanda, solução, DDD, empresa, interesse e trilha."],
+            ["4", "Comunidade viva", "Grafo do grupo, Rede pública opcional, chat de busca e follow-up pós-evento."]
+          ].map(([step, title, body]) => (
+            <article key={step}>
+              <span>{step}</span>
+              <strong>{title}</strong>
+              <p>{body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -1458,13 +1709,39 @@ TEL:+55 41 97777-2222
 EMAIL:eduardo@conectasul.events
 NOTE:Contato vindo de iCloud/vCard. Organiza encontros executivos e rodadas de negócios.
 END:VCARD`;
+  const exampleIcs = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Grafy//Apple Agenda Demo//PT-BR
+BEGIN:VEVENT
+UID:grafy-apple-agenda-001
+DTSTART:20260610T140000Z
+DTEND:20260610T153000Z
+SUMMARY:Rodada de negócios B2B
+LOCATION:São Paulo/SP
+ORGANIZER;CN=Marina Hub:mailto:marina@hubexample.com
+ATTENDEE;CN=Cláudia Ramos;ROLE=REQ-PARTICIPANT:mailto:claudia@ramospme.com
+ATTENDEE;CN=Igor Farias;ROLE=REQ-PARTICIPANT:mailto:igor@fariasgrowth.com
+END:VEVENT
+BEGIN:VEVENT
+UID:grafy-apple-agenda-002
+DTSTART:20260612T180000Z
+DTEND:20260612T190000Z
+SUMMARY:Mentoria para founders
+LOCATION:Curitiba/PR
+ORGANIZER;CN=Rodrigo Salles:mailto:rodrigo@sallesnetwork.com
+ATTENDEE;CN=Bianca Prado;ROLE=REQ-PARTICIPANT:mailto:bianca@pradotech.com
+END:VEVENT
+END:VCALENDAR`;
   const [csv, setCsv] = useState(exampleCsv);
   const [googleStatus, setGoogleStatus] = useState("");
+  const [googleImporting, setGoogleImporting] = useState(false);
   const [appleStatus, setAppleStatus] = useState("");
   const [vcardText, setVcardText] = useState(exampleVcard);
+  const [icsText, setIcsText] = useState(exampleIcs);
   const [linkedinQuery, setLinkedinQuery] = useState("");
   const preview = useMemo(() => parseCsvContacts(csv), [csv]);
   const applePreview = useMemo(() => parseVcardContacts(vcardText), [vcardText]);
+  const appleCalendarPreview = useMemo(() => parseIcsCalendarContacts(icsText), [icsText]);
   const googleClientConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
 
   const importContacts = () => {
@@ -1559,12 +1836,87 @@ END:VCARD`;
     reader.readAsText(file);
   };
 
-  const connectGoogle = () => {
+  const importAppleCalendar = () => {
+    const now = new Date().toISOString();
+    const contacts: Contact[] = appleCalendarPreview.map((partial) => ({
+      id: uid("ct"),
+      name: partial.name ?? "Participante Apple Agenda",
+      headline: partial.headline ?? "",
+      description: partial.description ?? "",
+      tags: unique([...(partial.tags ?? []), "Apple Calendar", "agenda"]),
+      phones: partial.phones ?? [],
+      emails: partial.emails ?? [],
+      ddd: partial.ddd ?? "",
+      source: "Apple Calendar",
+      currentDemand: partial.currentDemand ?? "",
+      problemSolves: partial.problemSolves ?? "",
+      notes: "Importado via arquivo .ics da Apple Agenda/iCloud Calendar no Grafy.",
+      links: [],
+      isPublic: false,
+      groupIds: ["grp_eventos"],
+      customFields: {
+        origemAgenda: "Apple Calendar",
+        ...(partial.customFields ?? {})
+      },
+      createdAt: now,
+      updatedAt: now
+    }));
+    addContacts(contacts);
+    setAppleStatus(`${contacts.length} participante(s) importado(s) da Apple Agenda via .ics.`);
+  };
+
+  const handleIcsFile = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setIcsText(String(reader.result ?? ""));
+    reader.readAsText(file);
+  };
+
+  const connectGoogle = async () => {
     if (!googleClientConfigured) {
       setGoogleStatus("Google ainda não está ativo neste deploy. A arquitetura correta é Supabase Auth + OAuth incremental + Edge Function para People API e Calendar API. Use a amostra abaixo para validar a experiência.");
       return;
     }
-    setGoogleStatus("Cliente Google encontrado. Próxima etapa: abrir consentimento OAuth separado para contatos e agenda, mostrar preview e importar somente após aprovação.");
+    setGoogleImporting(true);
+    setGoogleStatus("Abrindo consentimento Google para Contacts e Agenda...");
+    try {
+      await loadGoogleIdentityScript();
+      const tokenClient = window.google?.accounts?.oauth2?.initTokenClient({
+        client_id: String(import.meta.env.VITE_GOOGLE_CLIENT_ID),
+        scope: GOOGLE_IMPORT_SCOPES,
+        callback: async (response) => {
+          if (response.error || !response.access_token) {
+            setGoogleStatus(response.error_description || "Google não retornou token de acesso.");
+            setGoogleImporting(false);
+            return;
+          }
+          try {
+            setGoogleStatus("Lendo Google Contacts e Agenda autorizados...");
+            const contacts = await fetchGoogleContactsAndCalendar(response.access_token);
+            addContacts(contacts);
+            setGoogleStatus(`${contacts.length} contato(s)/participante(s) importado(s) via Google Contacts + Agenda.`);
+          } catch (error) {
+            setGoogleStatus(error instanceof Error ? error.message : "Falha ao importar dados do Google.");
+          } finally {
+            setGoogleImporting(false);
+          }
+        },
+        error_callback: (error) => {
+          setGoogleStatus(`Falha no OAuth Google: ${String(error)}`);
+          setGoogleImporting(false);
+        }
+      });
+      if (!tokenClient) {
+        setGoogleStatus("Google Identity Services não ficou disponível neste navegador.");
+        setGoogleImporting(false);
+        return;
+      }
+      tokenClient.requestAccessToken({ prompt: "consent" });
+    } catch (error) {
+      setGoogleStatus(error instanceof Error ? error.message : "Não foi possível iniciar OAuth Google.");
+      setGoogleImporting(false);
+    }
   };
 
   const openLinkedinResearch = (name: string) => {
@@ -1649,9 +2001,9 @@ END:VCARD`;
             })}
           </div>
           <div className="button-row">
-            <button className="secondary-button compact" onClick={connectGoogle}>
+            <button className="secondary-button compact" onClick={connectGoogle} disabled={googleImporting}>
               <Globe2 size={16} />
-              Testar OAuth
+              {googleClientConfigured ? "Conectar Google real" : "Testar OAuth"}
             </button>
             <button className="primary-button compact" onClick={importGoogleSample}>
               <CalendarClock size={16} />
@@ -1673,8 +2025,8 @@ END:VCARD`;
           <div className="google-source-flow apple-source-flow">
             {[
               ["1", "vCard/iCloud", "Nome, empresa, cargo, email e telefone"],
-              ["2", "Apple Contacts", "Normalização de contatos autorizados"],
-              ["3", "Apple Calendar", "Eventos via EventKit no app nativo"],
+              ["2", "Apple Contacts", "Normalização por .vcf no web"],
+              ["3", "Apple Agenda", "Participantes por .ics ou EventKit"],
               ["4", "Grafo", "DDD, tags, origem e oportunidades"]
             ].map(([step, title, body]) => (
               <div key={step}>
@@ -1692,16 +2044,42 @@ END:VCARD`;
               </label>
               <input className="file-input" type="file" accept=".vcf,text/vcard,text/x-vcard" onChange={handleVcardFile} />
             </div>
-            <div className="google-preview-list apple-preview-list">
-              {applePreview.slice(0, 4).map((contact, index) => (
-                <div key={`${contact.name}-${index}`} className="google-preview-row">
-                  <span className="avatar small">{initials(contact.name ?? "?")}</span>
-                  <div>
-                    <strong>{contact.name}</strong>
-                    <small>Apple Contacts · {formatDddLocation(contact.ddd)}</small>
+            <div>
+              <label>
+                Colar Apple Agenda .ics ou carregar arquivo
+                <textarea className="csv-box vcard-box" value={icsText} onChange={(event) => setIcsText(event.target.value)} />
+              </label>
+              <input className="file-input" type="file" accept=".ics,text/calendar" onChange={handleIcsFile} />
+            </div>
+          </div>
+          <div className="apple-preview-grid">
+            <div>
+              <strong>Preview Apple Contacts</strong>
+              <div className="google-preview-list apple-preview-list">
+                {applePreview.slice(0, 4).map((contact, index) => (
+                  <div key={`${contact.name}-${index}`} className="google-preview-row">
+                    <span className="avatar small">{initials(contact.name ?? "?")}</span>
+                    <div>
+                      <strong>{contact.name}</strong>
+                      <small>Apple Contacts · {formatDddLocation(contact.ddd)}</small>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            </div>
+            <div>
+              <strong>Preview Apple Agenda</strong>
+              <div className="google-preview-list apple-preview-list">
+                {appleCalendarPreview.slice(0, 4).map((contact, index) => (
+                  <div key={`${contact.name}-${index}`} className="google-preview-row">
+                    <span className="avatar small">{initials(contact.name ?? "?")}</span>
+                    <div>
+                      <strong>{contact.name}</strong>
+                      <small>Apple Calendar · {String(contact.customFields?.eventoOrigem ?? "evento")}</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
           <div className="button-row">
@@ -1713,8 +2091,12 @@ END:VCARD`;
               <Upload size={16} />
               Importar vCard ({applePreview.length})
             </button>
+            <button className="primary-button compact" onClick={importAppleCalendar} disabled={!appleCalendarPreview.length}>
+              <CalendarClock size={16} />
+              Importar Agenda .ics ({appleCalendarPreview.length})
+            </button>
           </div>
-          <span className="status-pill attention">web: vCard · nativo: Contacts/EventKit</span>
+          <span className="status-pill attention">web: vCard + .ics · nativo: Contacts/EventKit</span>
         </section>
 
         <section className="integration-card">

@@ -402,6 +402,83 @@ export const parseVcardContacts = (vcard: string): Partial<Contact>[] => {
   });
 };
 
+const unfoldCalendarLines = (input: string) =>
+  input
+    .replace(/\r?\n[ \t]/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+const getCalendarValue = (line: string) => {
+  const separatorIndex = line.indexOf(":");
+  return separatorIndex >= 0 ? line.slice(separatorIndex + 1).trim() : "";
+};
+
+const getCalendarParam = (line: string, param: string) => {
+  const match = line.match(new RegExp(`${param}=([^;:]+)`, "i"));
+  return match?.[1]?.replace(/^"|"$/g, "").trim() ?? "";
+};
+
+const cleanMailto = (value: string) => value.replace(/^mailto:/i, "").trim();
+
+export const parseIcsCalendarContacts = (ics: string): Partial<Contact>[] => {
+  const events = ics.match(/BEGIN:VEVENT[\s\S]*?END:VEVENT/gi) ?? [];
+  return events.flatMap((eventBlock) => {
+    const lines = unfoldCalendarLines(eventBlock);
+    const summary = getCalendarValue(lines.find((line) => line.toUpperCase().startsWith("SUMMARY")) ?? "");
+    const location = getCalendarValue(lines.find((line) => line.toUpperCase().startsWith("LOCATION")) ?? "");
+    const date = getCalendarValue(lines.find((line) => line.toUpperCase().startsWith("DTSTART")) ?? "");
+    const attendeeLines = lines.filter((line) => line.toUpperCase().startsWith("ATTENDEE"));
+    const organizerLine = lines.find((line) => line.toUpperCase().startsWith("ORGANIZER"));
+    const attendeeContacts = attendeeLines.map((line) => {
+      const email = cleanMailto(getCalendarValue(line));
+      const commonName = getCalendarParam(line, "CN");
+      const role = getCalendarParam(line, "ROLE");
+      const name = commonName || email.split("@")[0]?.replace(/[._-]+/g, " ") || "Participante Apple Agenda";
+      return {
+        name,
+        headline: role ? `${role} em ${summary || "evento Apple"}` : `Participante de ${summary || "evento Apple"}`,
+        description: `Participante importado de agenda Apple/iCloud${summary ? ` no evento "${summary}"` : ""}${location ? ` em ${location}` : ""}.`,
+        emails: email ? [email] : [],
+        phones: [],
+        ddd: "",
+        tags: unique(["Apple Calendar", "agenda", "evento", location, summary].filter(Boolean)),
+        currentDemand: "",
+        problemSolves: "",
+        source: "Apple Calendar" as Contact["source"],
+        customFields: {
+          origemAgenda: "Apple Calendar",
+          eventoOrigem: summary,
+          localEvento: location,
+          dataEvento: date
+        }
+      } satisfies Partial<Contact>;
+    });
+    if (!organizerLine) return attendeeContacts;
+    const organizerEmail = cleanMailto(getCalendarValue(organizerLine));
+    const organizerName = getCalendarParam(organizerLine, "CN") || organizerEmail.split("@")[0]?.replace(/[._-]+/g, " ");
+    const organizerContact: Partial<Contact> = {
+      name: organizerName || "Organizador Apple Agenda",
+      headline: `Organizador de ${summary || "evento Apple"}`,
+      description: `Organizador identificado em agenda Apple/iCloud${summary ? ` no evento "${summary}"` : ""}${location ? ` em ${location}` : ""}.`,
+      emails: organizerEmail ? [organizerEmail] : [],
+      phones: [],
+      ddd: "",
+      tags: unique(["Apple Calendar", "organizador", "agenda", "evento", location, summary].filter(Boolean)),
+      currentDemand: "",
+      problemSolves: "",
+      source: "Apple Calendar",
+      customFields: {
+        origemAgenda: "Apple Calendar",
+        eventoOrigem: summary,
+        localEvento: location,
+        dataEvento: date
+      }
+    };
+    return [organizerContact, ...attendeeContacts];
+  });
+};
+
 const contactGraphHaystack = (contact: Contact, groups: GrafyState["groups"]) => {
   const contactGroups = groups.filter((group) => contact.groupIds.includes(group.id));
   return normalize(

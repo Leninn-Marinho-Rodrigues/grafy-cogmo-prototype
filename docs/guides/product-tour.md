@@ -12,13 +12,15 @@ Versão em vídeo curto: [grafy-demo-flow.mp4](../assets/grafy-demo-flow.mp4)
 
 ![Landing do Grafy](../assets/grafy-01-landing.png)
 
+![Landing de hubs e eventos](../assets/grafy-09-landing-hub.png)
+
 A entrada mostra a proposta central: transformar contatos em um mapa vivo de networking. O visual usa fundo animado, partículas conectadas e uma área de login demonstrativa.
 
 Pontos para comentar:
 
 - O produto nasce como PWA-first.
 - A experiência foi pensada para desktop e Android.
-- O topo permite alternar entre a landing para **Empresários** e a landing para **Hubs e eventos**.
+- O topo permite alternar entre duas páginas reais: `#/empresarios` para **Empresários** e `#/hubs-eventos` para **Hubs e eventos**.
 - A versão B2C fala de rede privada, oportunidades, clientes, parceiros e fornecedores.
 - A versão B2B/B2B2C fala de participantes, grupos compartilhados, comunidades e curadoria de matches.
 - O login real com Google/Supabase está planejado para a próxima fase.
@@ -94,10 +96,10 @@ O perfil concentra informações que viram sinais úteis para rede, busca e graf
 
 Em **Ajustes**, o protótipo organiza conectores por status e deixa claro o caminho seguro:
 
-- Google Contacts via OAuth e People API.
-- Google Agenda via OAuth incremental e Calendar API.
+- Google Contacts via OAuth e People API quando `VITE_GOOGLE_CLIENT_ID` estiver configurado.
+- Google Agenda via OAuth e Calendar API quando `VITE_GOOGLE_CLIENT_ID` estiver configurado.
 - Apple Contacts por vCard/.vcf no web e por Contacts framework no app nativo futuro.
-- Apple Calendar por EventKit no app nativo futuro ou importação autorizada por arquivo.
+- Apple Agenda por `.ics` no web e por EventKit no app nativo futuro.
 - LinkedIn oficial ou enriquecimento assistido com revisão humana.
 - Meetup GraphQL como integração futura para eventos e comunidades.
 - Instagram e X/Twitter apenas como placeholders de APIs oficiais.
@@ -107,7 +109,7 @@ O produto não promete scraping logado: toda integração real precisa de OAuth,
 
 Na tela de **Importar**, o bloco **Google Data Hub** permite importar uma amostra demonstrativa de Contacts + Agenda. Ela adiciona contatos de calendário, participantes de eventos, DDD/localidade e contexto de origem para validar o comportamento no grafo sem fingir integração real.
 
-O bloco **Apple Contacts + Calendar** permite colar ou carregar um `.vcf` exportado do iCloud/Contatos. Também há uma amostra Apple com contatos e evento para demonstrar como essa origem aparece no grafo, nos filtros e na base de contatos.
+O bloco **Apple Contacts + Calendar** permite colar/carregar um `.vcf` exportado do iCloud/Contatos e um `.ics` exportado de agenda. Também há uma amostra Apple com contatos e evento para demonstrar como essa origem aparece no grafo, nos filtros e na base de contatos.
 
 ![Importação Google e Apple](../assets/grafy-08-import-google-apple.png)
 
