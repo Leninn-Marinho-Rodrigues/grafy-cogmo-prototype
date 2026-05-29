@@ -102,6 +102,62 @@ type LandingMode = "choice" | AudienceMode | SignupLandingMode;
 type AuthMode = "signup" | "login";
 type AccountType = "personal" | "company";
 type AuthLoginHandler = (email: string, importedContacts?: Contact[], targetView?: ViewKey) => void;
+type OAuthRuntimeConfig = {
+  googleClientId: string;
+  appleServiceId: string;
+  appleRedirectUri: string;
+};
+
+const OAUTH_CONFIG_STORAGE_KEY = "grafy-oauth-runtime-config-v1";
+
+const envString = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
+const sanitizeOAuthConfig = (config: Partial<OAuthRuntimeConfig>): OAuthRuntimeConfig => ({
+  googleClientId: config.googleClientId?.trim() ?? "",
+  appleServiceId: config.appleServiceId?.trim() ?? "",
+  appleRedirectUri: config.appleRedirectUri?.trim() ?? ""
+});
+
+const readStoredOAuthConfig = (): OAuthRuntimeConfig => {
+  try {
+    const raw = window.localStorage.getItem(OAUTH_CONFIG_STORAGE_KEY);
+    return raw ? sanitizeOAuthConfig(JSON.parse(raw) as Partial<OAuthRuntimeConfig>) : sanitizeOAuthConfig({});
+  } catch {
+    return sanitizeOAuthConfig({});
+  }
+};
+
+const getOAuthRuntimeConfig = (): OAuthRuntimeConfig => {
+  const stored = readStoredOAuthConfig();
+  return {
+    googleClientId: envString(import.meta.env.VITE_GOOGLE_CLIENT_ID) || stored.googleClientId,
+    appleServiceId: envString(import.meta.env.VITE_APPLE_SERVICE_ID) || stored.appleServiceId,
+    appleRedirectUri: envString(import.meta.env.VITE_APPLE_REDIRECT_URI) || stored.appleRedirectUri
+  };
+};
+
+function useOAuthRuntimeConfig() {
+  const [config, setConfig] = useState<OAuthRuntimeConfig>(() => getOAuthRuntimeConfig());
+
+  const saveConfig = (nextConfig: Partial<OAuthRuntimeConfig>) => {
+    const sanitized = sanitizeOAuthConfig(nextConfig);
+    window.localStorage.setItem(OAUTH_CONFIG_STORAGE_KEY, JSON.stringify(sanitized));
+    setConfig(getOAuthRuntimeConfig());
+  };
+
+  const clearConfig = () => {
+    window.localStorage.removeItem(OAUTH_CONFIG_STORAGE_KEY);
+    setConfig(getOAuthRuntimeConfig());
+  };
+
+  return {
+    oauthConfig: config,
+    saveOAuthConfig: saveConfig,
+    clearOAuthConfig: clearConfig,
+    googleClientConfigured: Boolean(config.googleClientId),
+    appleClientConfigured: Boolean(config.appleServiceId && config.appleRedirectUri)
+  };
+}
 
 const getLandingModeFromHash = (): LandingMode => {
   const hash = window.location.hash.toLowerCase();
@@ -182,7 +238,7 @@ type GoogleTokenResponse = {
 };
 
 type GoogleTokenClient = {
-  requestAccessToken: (options?: { prompt?: string }) => void;
+  requestAccessToken: (options?: { prompt?: string; hint?: string }) => void;
 };
 
 type AppleSignInResponse = {
@@ -224,6 +280,7 @@ declare global {
           initTokenClient: (config: {
             client_id: string;
             scope: string;
+            include_granted_scopes?: boolean;
             callback: (response: GoogleTokenResponse) => void;
             error_callback?: (error: unknown) => void;
           }) => GoogleTokenClient;
@@ -258,6 +315,24 @@ const GOOGLE_IMPORT_SCOPES = [
   envScope(import.meta.env.VITE_GOOGLE_CONTACTS_SCOPE, "https://www.googleapis.com/auth/contacts.readonly"),
   envScope(import.meta.env.VITE_GOOGLE_CALENDAR_SCOPE, "https://www.googleapis.com/auth/calendar.readonly")
 ].join(" ");
+
+const decodeJwtPayload = (token?: string): Record<string, unknown> => {
+  if (!token) return {};
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return {};
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((char) => `%${`00${char.charCodeAt(0).toString(16)}`.slice(-2)}`)
+        .join("")
+    );
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+};
 
 let googleIdentityScriptPromise: Promise<void> | null = null;
 let appleIdentityScriptPromise: Promise<void> | null = null;
@@ -608,6 +683,40 @@ const fetchGoogleContactsAndCalendar = async (accessToken: string): Promise<Goog
   };
 };
 
+const requestGoogleNetworkImport = async (
+  googleClientId: string,
+  onStatus: (message: string) => void
+): Promise<GoogleNetworkImport> => {
+  await loadGoogleIdentityScript();
+  return new Promise((resolve, reject) => {
+    const tokenClient = window.google?.accounts?.oauth2?.initTokenClient({
+      client_id: googleClientId,
+      scope: GOOGLE_IMPORT_SCOPES,
+      include_granted_scopes: true,
+      callback: async (response) => {
+        if (response.error || !response.access_token) {
+          reject(new Error(response.error_description || response.error || "Google não retornou token de acesso."));
+          return;
+        }
+        try {
+          onStatus("Importando perfil, Google Contacts e Agenda autorizados...");
+          resolve(await fetchGoogleContactsAndCalendar(response.access_token));
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error("Falha ao importar dados do Google."));
+        }
+      },
+      error_callback: (error) => {
+        reject(new Error(`Falha no OAuth Google: ${String(error)}`));
+      }
+    });
+    if (!tokenClient) {
+      reject(new Error("Google Identity Services não ficou disponível neste navegador."));
+      return;
+    }
+    tokenClient.requestAccessToken({ prompt: "consent select_account" });
+  });
+};
+
 function useStoredState<T>(key: string, fallback: T) {
   const [value, setValue] = useState<T>(() => {
     const stored = localStorage.getItem(key);
@@ -834,6 +943,81 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
       className={`network-backdrop ${className}`}
       aria-hidden="true"
     />
+  );
+}
+
+function OAuthSetupPanel({
+  config,
+  onSave,
+  onClear,
+  compact = false
+}: {
+  config: OAuthRuntimeConfig;
+  onSave: (config: OAuthRuntimeConfig) => void;
+  onClear: () => void;
+  compact?: boolean;
+}) {
+  const [draft, setDraft] = useState(config);
+  const currentOrigin = window.location.origin;
+  const currentReturnUrl = `${window.location.origin}${window.location.pathname}`;
+
+  useEffect(() => {
+    setDraft(config);
+  }, [config.googleClientId, config.appleServiceId, config.appleRedirectUri]);
+
+  return (
+    <div className={`oauth-config-panel ${compact ? "compact" : ""}`}>
+      <div className="oauth-config-head">
+        <span className="status-dot attention" />
+        <div>
+          <strong>Credenciais oficiais de login</strong>
+          <small>Use apenas IDs públicos. Nunca cole client secret no front-end.</small>
+        </div>
+      </div>
+      <div className="oauth-config-grid">
+        <label>
+          Google Client ID
+          <input
+            value={draft.googleClientId}
+            onChange={(event) => setDraft((value) => ({ ...value, googleClientId: event.target.value }))}
+            placeholder="xxxx.apps.googleusercontent.com"
+            autoComplete="off"
+          />
+        </label>
+        <label>
+          Apple Service ID
+          <input
+            value={draft.appleServiceId}
+            onChange={(event) => setDraft((value) => ({ ...value, appleServiceId: event.target.value }))}
+            placeholder="com.suaempresa.grafy.web"
+            autoComplete="off"
+          />
+        </label>
+        <label>
+          Apple Redirect URI
+          <input
+            value={draft.appleRedirectUri}
+            onChange={(event) => setDraft((value) => ({ ...value, appleRedirectUri: event.target.value }))}
+            placeholder={currentReturnUrl}
+            autoComplete="off"
+          />
+        </label>
+      </div>
+      <div className="oauth-hints">
+        <span>Origem Google: <code>{currentOrigin}</code></span>
+        <span>Retorno Apple sugerido: <code>{currentReturnUrl}</code></span>
+      </div>
+      <div className="oauth-config-actions">
+        <button className="primary-button compact" type="button" onClick={() => onSave(draft)}>
+          <ShieldCheck size={16} />
+          Salvar IDs públicos
+        </button>
+        <button className="secondary-button compact" type="button" onClick={onClear}>
+          <RotateCcw size={16} />
+          Limpar teste local
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1136,6 +1320,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
   const [status, setStatus] = useState("");
   const [googleImporting, setGoogleImporting] = useState(false);
   const [appleIdentityImporting, setAppleIdentityImporting] = useState(false);
+  const [showOAuthSetup, setShowOAuthSetup] = useState(false);
   const [appleVcardText, setAppleVcardText] = useState("");
   const [appleIcsText, setAppleIcsText] = useState("");
   const [hubImportText, setHubImportText] = useState("");
@@ -1144,8 +1329,13 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
   const [hubImportSource, setHubImportSource] = useState<Extract<Contact["source"], "CSV" | "JSON" | "Excel">>("CSV");
   const [hubImporting, setHubImporting] = useState(false);
   const [landingMode, setLandingMode] = useState<LandingMode>(() => getLandingModeFromHash());
-  const googleClientConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
-  const appleClientConfigured = Boolean(import.meta.env.VITE_APPLE_SERVICE_ID && import.meta.env.VITE_APPLE_REDIRECT_URI);
+  const {
+    oauthConfig,
+    saveOAuthConfig,
+    clearOAuthConfig,
+    googleClientConfigured,
+    appleClientConfigured
+  } = useOAuthRuntimeConfig();
   const appleVcardPreview = useMemo(() => parseVcardContacts(appleVcardText), [appleVcardText]);
   const appleCalendarPreview = useMemo(() => parseIcsCalendarContacts(appleIcsText), [appleIcsText]);
   const applePreviewCount = appleVcardPreview.length + appleCalendarPreview.length;
@@ -1311,7 +1501,8 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
       void handleGoogleLogin();
       return;
     }
-    setStatus("Cadastro qualificado. Agora configure Google Client ID no deploy ou carregue Apple .vcf/.ics para importar contatos reais.");
+    setShowOAuthSetup(true);
+    setStatus("Cadastro qualificado. Agora informe o Google Client ID público, configure os secrets do deploy ou carregue Apple .vcf/.ics para importar contatos reais.");
   };
 
   const buildAppleOnboardingContacts = () => [
@@ -1367,48 +1558,21 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 
   const handleGoogleLogin = async () => {
     if (!googleClientConfigured) {
-      setStatus("Para importar contatos reais do Google, configure VITE_GOOGLE_CLIENT_ID no deploy e habilite People API + Calendar API no Google Cloud. Não vou criar contatos artificiais neste fluxo.");
+      setShowOAuthSetup(true);
+      setStatus("Para abrir a tela real do Google, informe um Google Client ID ou configure VITE_GOOGLE_CLIENT_ID no GitHub Pages. Habilite People API e Calendar API no Google Cloud.");
       return;
     }
     setGoogleImporting(true);
     setStatus("Abrindo consentimento Google para Contacts e Agenda...");
     try {
-      await loadGoogleIdentityScript();
-      const tokenClient = window.google?.accounts?.oauth2?.initTokenClient({
-        client_id: String(import.meta.env.VITE_GOOGLE_CLIENT_ID),
-        scope: GOOGLE_IMPORT_SCOPES,
-        callback: async (response) => {
-          if (response.error || !response.access_token) {
-            setStatus(response.error_description || "Google não retornou token de acesso.");
-            setGoogleImporting(false);
-            return;
-          }
-          try {
-            setStatus("Importando perfil, Google Contacts e Agenda autorizados...");
-            const googleImport = await fetchGoogleContactsAndCalendar(response.access_token);
-            if (!googleImport.contacts.length) {
-              setStatus("Google autorizou, mas não retornou contatos/participantes com os campos permitidos.");
-              setGoogleImporting(false);
-              return;
-            }
-            setGoogleConnected(true);
-            onLogin(googleImport.profile.email || email || "usuario-google@grafy.local", googleImport.contacts, "dashboard");
-          } catch (error) {
-            setStatus(error instanceof Error ? error.message : "Falha ao importar dados do Google.");
-            setGoogleImporting(false);
-          }
-        },
-        error_callback: (error) => {
-          setStatus(`Falha no OAuth Google: ${String(error)}`);
-          setGoogleImporting(false);
-        }
-      });
-      if (!tokenClient) {
-        setStatus("Google Identity Services não ficou disponível neste navegador.");
-        setGoogleImporting(false);
+      const googleImport = await requestGoogleNetworkImport(oauthConfig.googleClientId, setStatus);
+      setGoogleConnected(true);
+      const sessionEmail = googleImport.profile.email || email || "usuario-google@grafy.local";
+      if (!googleImport.contacts.length) {
+        onLogin(sessionEmail, [], "import");
         return;
       }
-      tokenClient.requestAccessToken({ prompt: "consent" });
+      onLogin(sessionEmail, googleImport.contacts, "dashboard");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Não foi possível iniciar OAuth Google.");
       setGoogleImporting(false);
@@ -1427,23 +1591,30 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 
   const handleAppleIdentityLogin = async () => {
     if (!appleClientConfigured) {
-      setStatus("Para vincular Apple ID no web, configure VITE_APPLE_SERVICE_ID e VITE_APPLE_REDIRECT_URI. Contatos Apple entram por .vcf/.ics no PWA.");
+      setShowOAuthSetup(true);
+      setStatus("Para abrir Sign in with Apple no web, informe Apple Service ID e Redirect URI. Contatos Apple continuam entrando por .vcf/.ics no PWA.");
       return;
     }
     setAppleIdentityImporting(true);
     try {
       await loadAppleIdentityScript();
       window.AppleID?.auth?.init({
-        clientId: String(import.meta.env.VITE_APPLE_SERVICE_ID),
+        clientId: oauthConfig.appleServiceId,
         scope: "name email",
-        redirectURI: String(import.meta.env.VITE_APPLE_REDIRECT_URI),
+        redirectURI: oauthConfig.appleRedirectUri,
         state: "grafy-apple-signin",
         usePopup: true
       });
       const response = await window.AppleID?.auth?.signIn();
-      if (response?.user?.email) setEmail(response.user.email);
+      const tokenPayload = decodeJwtPayload(response?.authorization?.id_token);
+      const appleEmail = response?.user?.email || (typeof tokenPayload.email === "string" ? tokenPayload.email : "");
+      if (appleEmail) setEmail(appleEmail);
       setAppleConnected(true);
-      setStatus("Apple ID vinculado. No web, agora carregue .vcf/.ics para trazer contatos reais; acesso direto ao iCloud Contacts exige app nativo.");
+      if (authMode === "login") {
+        onLogin(appleEmail || email || "usuario-apple@grafy.local", [], "import");
+        return;
+      }
+      setStatus("Apple ID vinculado. No web, carregue .vcf/.ics para trazer contatos reais; acesso direto ao iCloud Contacts exige app nativo.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Não foi possível vincular Apple ID.");
     } finally {
@@ -1679,6 +1850,22 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                       </button>
                     </div>
 
+                    {(showOAuthSetup || !googleClientConfigured || !appleClientConfigured) && (
+                      <OAuthSetupPanel
+                        config={oauthConfig}
+                        onSave={(nextConfig) => {
+                          saveOAuthConfig(nextConfig);
+                          setShowOAuthSetup(false);
+                          setStatus("Credenciais públicas salvas neste navegador. Agora clique em Google ou Apple para abrir o provedor real.");
+                        }}
+                        onClear={() => {
+                          clearOAuthConfig();
+                          setShowOAuthSetup(true);
+                          setStatus("Credenciais locais removidas. Configure os IDs públicos ou os secrets do GitHub para usar OAuth real.");
+                        }}
+                      />
+                    )}
+
                     <div className="account-type-toggle">
                       <button type="button" className={accountType === "personal" ? "active" : ""} onClick={() => setAccountType("personal")}>
                         <ContactRound size={17} />
@@ -1886,6 +2073,22 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                         <ChevronRight size={16} />
                       </button>
                     </div>
+                    {(showOAuthSetup || !googleClientConfigured || !appleClientConfigured) && (
+                      <OAuthSetupPanel
+                        config={oauthConfig}
+                        compact
+                        onSave={(nextConfig) => {
+                          saveOAuthConfig(nextConfig);
+                          setShowOAuthSetup(false);
+                          setStatus("Credenciais públicas salvas. Tente entrar novamente com Google ou Apple.");
+                        }}
+                        onClear={() => {
+                          clearOAuthConfig();
+                          setShowOAuthSetup(true);
+                          setStatus("Credenciais locais removidas.");
+                        }}
+                      />
+                    )}
                     <div className="signup-form-grid">
                       <label>
                         Email
@@ -2589,9 +2792,16 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
   const [googleStatus, setGoogleStatus] = useState("");
   const [googleImporting, setGoogleImporting] = useState(false);
   const [appleStatus, setAppleStatus] = useState("");
+  const [showOAuthSetup, setShowOAuthSetup] = useState(false);
   const [vcardText, setVcardText] = useState("");
   const [icsText, setIcsText] = useState("");
   const [linkedinQuery, setLinkedinQuery] = useState("");
+  const {
+    oauthConfig,
+    saveOAuthConfig,
+    clearOAuthConfig,
+    googleClientConfigured
+  } = useOAuthRuntimeConfig();
   const textPreview = useMemo(() => {
     try {
       return parseContactImportText(importText);
@@ -2602,7 +2812,6 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
   const preview = filePreview ?? textPreview;
   const applePreview = useMemo(() => parseVcardContacts(vcardText), [vcardText]);
   const appleCalendarPreview = useMemo(() => parseIcsCalendarContacts(icsText), [icsText]);
-  const googleClientConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
 
   const importContacts = () => {
     const contacts: Contact[] = preview.map((partial) =>
@@ -2707,55 +2916,28 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
 
   const connectGoogle = async () => {
     if (!googleClientConfigured) {
-      setGoogleStatus("Google ainda não está ativo neste deploy. Configure VITE_GOOGLE_CLIENT_ID e habilite People API + Calendar API para importar dados reais. Este fluxo não cria amostras artificiais.");
+      setShowOAuthSetup(true);
+      setGoogleStatus("Google ainda não está ativo neste deploy. Informe um Google Client ID público ou configure VITE_GOOGLE_CLIENT_ID para abrir OAuth real.");
       return;
     }
     setGoogleImporting(true);
     setGoogleStatus("Abrindo consentimento Google para Contacts e Agenda...");
     try {
-      await loadGoogleIdentityScript();
-      const tokenClient = window.google?.accounts?.oauth2?.initTokenClient({
-        client_id: String(import.meta.env.VITE_GOOGLE_CLIENT_ID),
-        scope: GOOGLE_IMPORT_SCOPES,
-        callback: async (response) => {
-          if (response.error || !response.access_token) {
-            setGoogleStatus(response.error_description || "Google não retornou token de acesso.");
-            setGoogleImporting(false);
-            return;
-          }
-          try {
-            setGoogleStatus("Lendo perfil, Google Contacts e Agenda autorizados...");
-            const googleImport = await fetchGoogleContactsAndCalendar(response.access_token);
-            if (!googleImport.contacts.length) {
-              setGoogleStatus("Google autorizou, mas não retornou contatos/participantes com os campos permitidos.");
-              return;
-            }
-            addContacts(googleImport.contacts);
-            setGoogleStatus(
-              `${googleImport.contacts.length} contato(s)/participante(s) importado(s) via Google Contacts + Agenda` +
-                ` (${googleImport.stats.peopleContacts} de Contacts, ${googleImport.stats.calendarContacts} de Agenda` +
-                `${googleImport.stats.totalBeforeMerge !== googleImport.contacts.length ? ", com duplicados unidos" : ""})` +
-                `${googleImport.profile.email ? ` para ${googleImport.profile.email}` : ""}.`
-            );
-          } catch (error) {
-            setGoogleStatus(error instanceof Error ? error.message : "Falha ao importar dados do Google.");
-          } finally {
-            setGoogleImporting(false);
-          }
-        },
-        error_callback: (error) => {
-          setGoogleStatus(`Falha no OAuth Google: ${String(error)}`);
-          setGoogleImporting(false);
-        }
-      });
-      if (!tokenClient) {
-        setGoogleStatus("Google Identity Services não ficou disponível neste navegador.");
-        setGoogleImporting(false);
+      const googleImport = await requestGoogleNetworkImport(oauthConfig.googleClientId, setGoogleStatus);
+      if (!googleImport.contacts.length) {
+        setGoogleStatus("Google autorizou o login, mas não retornou contatos/participantes com os campos permitidos.");
         return;
       }
-      tokenClient.requestAccessToken({ prompt: "consent" });
+      addContacts(googleImport.contacts);
+      setGoogleStatus(
+        `${googleImport.contacts.length} contato(s)/participante(s) importado(s) via Google Contacts + Agenda` +
+          ` (${googleImport.stats.peopleContacts} de Contacts, ${googleImport.stats.calendarContacts} de Agenda` +
+          `${googleImport.stats.totalBeforeMerge !== googleImport.contacts.length ? ", com duplicados unidos" : ""})` +
+          `${googleImport.profile.email ? ` para ${googleImport.profile.email}` : ""}.`
+      );
     } catch (error) {
       setGoogleStatus(error instanceof Error ? error.message : "Não foi possível iniciar OAuth Google.");
+    } finally {
       setGoogleImporting(false);
     }
   };
@@ -2880,6 +3062,22 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
               {googleClientConfigured ? "Conectar Google real" : "Configurar Client ID"}
             </button>
           </div>
+          {(showOAuthSetup || !googleClientConfigured) && (
+            <OAuthSetupPanel
+              config={oauthConfig}
+              compact
+              onSave={(nextConfig) => {
+                saveOAuthConfig(nextConfig);
+                setShowOAuthSetup(false);
+                setGoogleStatus("Google Client ID salvo neste navegador. Clique em Conectar Google real para abrir o consentimento.");
+              }}
+              onClear={() => {
+                clearOAuthConfig();
+                setShowOAuthSetup(true);
+                setGoogleStatus("Credenciais locais removidas.");
+              }}
+            />
+          )}
           <span className={googleClientConfigured ? "status-pill live" : "status-pill"}>{googleClientConfigured ? "client id detectado" : "não configurado"}</span>
         </section>
 
@@ -3013,7 +3211,7 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
 }
 
 function IntegrationsView({ state, setView }: AppShellProps) {
-  const googleClientConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+  const { googleClientConfigured, appleClientConfigured } = useOAuthRuntimeConfig();
   const openExternal = (url: string) => window.open(url, "_blank", "noopener,noreferrer");
   const connectors = [
     {
@@ -3043,8 +3241,8 @@ function IntegrationsView({ state, setView }: AppShellProps) {
     {
       name: "Apple Contacts",
       icon: ContactRound,
-      status: "Apple ID + vCard",
-      tone: "attention",
+      status: appleClientConfigured ? "Apple ID configurado" : "Apple ID + vCard",
+      tone: appleClientConfigured ? "live" : "attention",
       description:
         "No protótipo web, importa .vcf exportado do iCloud/Contatos. Em app nativo, usa Contacts framework com permissão do usuário.",
       data: ["nome", "empresa", "cargo", "emails", "telefones"],
@@ -3937,12 +4135,13 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
   const [name, setName] = useState("");
   const [type, setType] = useState<CustomField["type"]>("short_text");
   const [connectorStatus, setConnectorStatus] = useState("Escolha uma integração para ver o caminho seguro de conexão.");
+  const { googleClientConfigured, appleClientConfigured } = useOAuthRuntimeConfig();
   const connectorSettings = [
     {
       name: "Google Contacts",
       icon: Globe2,
-      status: import.meta.env.VITE_GOOGLE_CLIENT_ID ? "OAuth disponível" : "Client ID pendente",
-      tone: import.meta.env.VITE_GOOGLE_CLIENT_ID ? "live" : "attention",
+      status: googleClientConfigured ? "OAuth disponível" : "Client ID pendente",
+      tone: googleClientConfigured ? "live" : "attention",
       body: "Login Google + People API para puxar nome, sobrenome, email, telefone e foto salvos pelo usuário.",
       action: "Preparar Google OAuth",
       data: ["nome", "email", "telefone", "foto", "DDD"]
@@ -3959,8 +4158,8 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
     {
       name: "Apple Contacts",
       icon: ContactRound,
-      status: "vCard ativo",
-      tone: "live",
+      status: appleClientConfigured ? "Apple ID + vCard" : "vCard ativo",
+      tone: appleClientConfigured ? "live" : "attention",
       body: "No web, importar .vcf exportado do iCloud/Contatos. No app nativo, usar CNContactStore com permissão e preview.",
       action: "Importar vCard Apple",
       data: ["vCard", "nome", "empresa", "telefone", "DDD"]

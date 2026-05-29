@@ -122,6 +122,26 @@ Abra:
 http://127.0.0.1:5173/
 ```
 
+### OAuth real: Google e Apple
+
+O protótipo não usa client secret no front-end. Para o botão abrir o provedor real, configure apenas os IDs públicos:
+
+1. No Google Cloud Console, crie um OAuth Client ID do tipo **Web application**.
+2. Habilite **People API** e **Google Calendar API** no mesmo projeto.
+3. Adicione as origens autorizadas `http://127.0.0.1:5173` e `https://leninn-marinho-rodrigues.github.io`.
+4. Salve o Client ID em `VITE_GOOGLE_CLIENT_ID` ou cole no painel de credenciais do onboarding para teste local no navegador.
+5. No Apple Developer, configure **Sign in with Apple for the Web** com Service ID e Return URL exata do deploy. No web, Apple ID autentica a pessoa; contatos do iCloud entram por `.vcf` e agenda por `.ics`.
+
+Para publicar no GitHub Pages, crie estes secrets no repositório:
+
+```text
+VITE_GOOGLE_CLIENT_ID
+VITE_GOOGLE_CONTACTS_SCOPE
+VITE_GOOGLE_CALENDAR_SCOPE
+VITE_APPLE_SERVICE_ID
+VITE_APPLE_REDIRECT_URI
+```
+
 Para validar a build:
 
 ```bash
