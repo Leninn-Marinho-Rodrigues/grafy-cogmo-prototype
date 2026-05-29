@@ -8,6 +8,7 @@ Esta pasta organiza materiais de produto, arquitetura, pesquisa e validação do
 - [Arquitetura e decisões técnicas](guides/architecture.md)
 - [Roteiro de demo](guides/demo-script.md)
 - [Design system e UX](guides/design-system.md)
+- [Checklist de execucao das ultimas solicitacoes](guides/execution-checklist-last-requests.md)
 
 ## Pesquisa e auditoria
 

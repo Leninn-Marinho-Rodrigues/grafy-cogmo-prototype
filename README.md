@@ -177,6 +177,7 @@ Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides
 - [Arquitetura e decisões técnicas](docs/guides/architecture.md)
 - [Roteiro de demo](docs/guides/demo-script.md)
 - [Design system e UX](docs/guides/design-system.md)
+- [Checklist das últimas solicitações](docs/guides/execution-checklist-last-requests.md)
 - [Auditoria de gaps do PRD](docs/PRD-GAP-AUDIT-2026-05-28.md)
 - [Pesquisa de referências](docs/RESEARCH-NETWORK-CRM-INSPIRATION-2026-05-28.md)
 - [Pesquisa profunda de apps e bibliotecas](docs/DEEP-RESEARCH-NETWORK-APPS-2026-05-28.md)
