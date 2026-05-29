@@ -137,23 +137,10 @@ const getOAuthRuntimeConfig = (): OAuthRuntimeConfig => {
 };
 
 function useOAuthRuntimeConfig() {
-  const [config, setConfig] = useState<OAuthRuntimeConfig>(() => getOAuthRuntimeConfig());
-
-  const saveConfig = (nextConfig: Partial<OAuthRuntimeConfig>) => {
-    const sanitized = sanitizeOAuthConfig(nextConfig);
-    window.localStorage.setItem(OAUTH_CONFIG_STORAGE_KEY, JSON.stringify(sanitized));
-    setConfig(getOAuthRuntimeConfig());
-  };
-
-  const clearConfig = () => {
-    window.localStorage.removeItem(OAUTH_CONFIG_STORAGE_KEY);
-    setConfig(getOAuthRuntimeConfig());
-  };
+  const [config] = useState<OAuthRuntimeConfig>(() => getOAuthRuntimeConfig());
 
   return {
     oauthConfig: config,
-    saveOAuthConfig: saveConfig,
-    clearOAuthConfig: clearConfig,
     googleClientConfigured: Boolean(config.googleClientId),
     appleClientConfigured: Boolean(config.appleServiceId && config.appleRedirectUri)
   };
@@ -946,81 +933,6 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
   );
 }
 
-function OAuthSetupPanel({
-  config,
-  onSave,
-  onClear,
-  compact = false
-}: {
-  config: OAuthRuntimeConfig;
-  onSave: (config: OAuthRuntimeConfig) => void;
-  onClear: () => void;
-  compact?: boolean;
-}) {
-  const [draft, setDraft] = useState(config);
-  const currentOrigin = window.location.origin;
-  const currentReturnUrl = `${window.location.origin}${window.location.pathname}`;
-
-  useEffect(() => {
-    setDraft(config);
-  }, [config.googleClientId, config.appleServiceId, config.appleRedirectUri]);
-
-  return (
-    <div className={`oauth-config-panel ${compact ? "compact" : ""}`}>
-      <div className="oauth-config-head">
-        <span className="status-dot attention" />
-        <div>
-          <strong>Credenciais oficiais de login</strong>
-          <small>Use apenas IDs públicos. Nunca cole client secret no front-end.</small>
-        </div>
-      </div>
-      <div className="oauth-config-grid">
-        <label>
-          Google Client ID
-          <input
-            value={draft.googleClientId}
-            onChange={(event) => setDraft((value) => ({ ...value, googleClientId: event.target.value }))}
-            placeholder="xxxx.apps.googleusercontent.com"
-            autoComplete="off"
-          />
-        </label>
-        <label>
-          Apple Service ID
-          <input
-            value={draft.appleServiceId}
-            onChange={(event) => setDraft((value) => ({ ...value, appleServiceId: event.target.value }))}
-            placeholder="com.suaempresa.grafy.web"
-            autoComplete="off"
-          />
-        </label>
-        <label>
-          Apple Redirect URI
-          <input
-            value={draft.appleRedirectUri}
-            onChange={(event) => setDraft((value) => ({ ...value, appleRedirectUri: event.target.value }))}
-            placeholder={currentReturnUrl}
-            autoComplete="off"
-          />
-        </label>
-      </div>
-      <div className="oauth-hints">
-        <span>Origem Google: <code>{currentOrigin}</code></span>
-        <span>Retorno Apple sugerido: <code>{currentReturnUrl}</code></span>
-      </div>
-      <div className="oauth-config-actions">
-        <button className="primary-button compact" type="button" onClick={() => onSave(draft)}>
-          <ShieldCheck size={16} />
-          Salvar IDs públicos
-        </button>
-        <button className="secondary-button compact" type="button" onClick={onClear}>
-          <RotateCcw size={16} />
-          Limpar teste local
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function App() {
   const [state, setState] = useStoredState<GrafyState>(STORAGE_KEY, initialState);
   const [session, setSession] = useStoredState<{ email: string } | null>(SESSION_KEY, null);
@@ -1320,7 +1232,6 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
   const [status, setStatus] = useState("");
   const [googleImporting, setGoogleImporting] = useState(false);
   const [appleIdentityImporting, setAppleIdentityImporting] = useState(false);
-  const [showOAuthSetup, setShowOAuthSetup] = useState(false);
   const [appleVcardText, setAppleVcardText] = useState("");
   const [appleIcsText, setAppleIcsText] = useState("");
   const [hubImportText, setHubImportText] = useState("");
@@ -1331,8 +1242,6 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
   const [landingMode, setLandingMode] = useState<LandingMode>(() => getLandingModeFromHash());
   const {
     oauthConfig,
-    saveOAuthConfig,
-    clearOAuthConfig,
     googleClientConfigured,
     appleClientConfigured
   } = useOAuthRuntimeConfig();
@@ -1501,8 +1410,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
       void handleGoogleLogin();
       return;
     }
-    setShowOAuthSetup(true);
-    setStatus("Cadastro qualificado. Agora informe o Google Client ID público, configure os secrets do deploy ou carregue Apple .vcf/.ics para importar contatos reais.");
+    setStatus("Cadastro qualificado. Para entrar como na Epic, ative Google ou Apple no ambiente do Grafy; o usuário final só precisa clicar no provedor.");
   };
 
   const buildAppleOnboardingContacts = () => [
@@ -1558,8 +1466,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 
   const handleGoogleLogin = async () => {
     if (!googleClientConfigured) {
-      setShowOAuthSetup(true);
-      setStatus("Para abrir a tela real do Google, informe um Google Client ID ou configure VITE_GOOGLE_CLIENT_ID no GitHub Pages. Habilite People API e Calendar API no Google Cloud.");
+      setStatus("Google ainda não está ativado nesta publicação. Em produção, este botão abre a tela do Google direto; a credencial do app é configurada uma única vez pelo time do Grafy.");
       return;
     }
     setGoogleImporting(true);
@@ -1591,8 +1498,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 
   const handleAppleIdentityLogin = async () => {
     if (!appleClientConfigured) {
-      setShowOAuthSetup(true);
-      setStatus("Para abrir Sign in with Apple no web, informe Apple Service ID e Redirect URI. Contatos Apple continuam entrando por .vcf/.ics no PWA.");
+      setStatus("Apple ainda não está ativado nesta publicação. Em produção, este botão abre o Sign in with Apple direto; contatos Apple no web entram por .vcf/.ics autorizados pelo usuário.");
       return;
     }
     setAppleIdentityImporting(true);
@@ -1803,68 +1709,39 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 
                 {authMode === "signup" ? (
                   <>
-                    <div className="source-requirement">
-                      <Fingerprint size={20} />
-                      <div>
-                        <strong>
-                          {audienceMode === "personal"
-                            ? "Google ou Apple é obrigatório para construir seu network."
-                            : "Google ou Apple identifica o admin; a base real alimenta o hub."}
-                        </strong>
-                        <small>
-                          {audienceMode === "personal" && hasContactSource
-                            ? "Fonte de contatos conectada. Agora complete os dados para qualificar o grafo."
-                            : audienceMode === "personal" && hasIdentitySource
-                              ? "Apple ID vinculado. Para montar o grafo, carregue .vcf/.ics ou use Google Contacts."
-                            : audienceMode === "personal"
-                              ? "Conecte uma fonte real antes de concluir o cadastro."
-                              : "Vincule o admin quando possível e carregue Excel, CSV ou JSON para criar a rede compartilhada."}
-                        </small>
+                    <div className="simple-auth-panel">
+                      <div className="simple-auth-head">
+                        <Fingerprint size={20} />
+                        <div>
+                          <strong>Entre ou crie sua conta</strong>
+                          <small>
+                            {audienceMode === "personal"
+                              ? "Escolha Google ou Apple. O Grafy usa os dados autorizados para montar seu network sem pedir configuração técnica."
+                              : "Escolha uma conta para identificar o admin. Depois carregue a base real do hub, evento ou empresa."}
+                          </small>
+                        </div>
                       </div>
+                      <div className="auth-provider-grid" aria-label="Maneiras de criar conta">
+                        <button className={`provider-option google ${googleConnected ? "connected" : ""}`} type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
+                          <span className="provider-logo google">G</span>
+                          <strong>{googleImporting ? "Abrindo Google..." : "Continuar com Google"}</strong>
+                          <small>Conta, contatos e agenda autorizados</small>
+                        </button>
+                        <button className={`provider-option apple ${appleConnected || applePreviewCount ? "connected" : ""}`} type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
+                          <span className="provider-logo apple"><UserRound size={18} /></span>
+                          <strong>{appleIdentityImporting ? "Abrindo Apple..." : "Continuar com Apple"}</strong>
+                          <small>Apple ID; contatos por vCard/.ics</small>
+                        </button>
+                        <button className={`provider-option linkedin ${linkedinConnected ? "connected" : ""}`} type="button" onClick={handleLinkedinConnect}>
+                          <span className="provider-logo linkedin">in</span>
+                          <strong>Vincular LinkedIn</strong>
+                          <small>Perfil profissional</small>
+                        </button>
+                      </div>
+                      <p className="provider-helper">
+                        O usuário só clica no provedor. A conexão do app fica preparada pelo time do Grafy, fora da tela de login.
+                      </p>
                     </div>
-
-                    <div className="connector-choice-row">
-                      <button className={`connector-choice ${googleConnected ? "connected" : ""}`} type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
-                        <Globe2 size={19} />
-                        <span>
-                          <strong>{googleImporting ? "Conectando Google..." : googleClientConfigured ? "Criar com Google" : "Google OAuth pendente"}</strong>
-                          <small>{googleClientConfigured ? "Conta + Contacts + Agenda" : "adicione VITE_GOOGLE_CLIENT_ID"}</small>
-                        </span>
-                        <BadgeCheck size={16} />
-                      </button>
-                      <button className={`connector-choice ${appleConnected || applePreviewCount ? "connected" : ""}`} type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
-                        <UserRound size={19} />
-                        <span>
-                          <strong>{appleIdentityImporting ? "Vinculando Apple..." : appleClientConfigured ? "Criar com Apple" : "Apple OAuth pendente"}</strong>
-                          <small>{appleClientConfigured ? "Apple ID + vCard" : "adicione Service ID + redirect"}</small>
-                        </span>
-                        <BadgeCheck size={16} />
-                      </button>
-                      <button className={`connector-choice ${linkedinConnected ? "connected" : ""}`} type="button" onClick={handleLinkedinConnect}>
-                        <Link2 size={19} />
-                        <span>
-                          <strong>LinkedIn</strong>
-                          <small>perfil profissional</small>
-                        </span>
-                        <BadgeCheck size={16} />
-                      </button>
-                    </div>
-
-                    {(showOAuthSetup || !googleClientConfigured || !appleClientConfigured) && (
-                      <OAuthSetupPanel
-                        config={oauthConfig}
-                        onSave={(nextConfig) => {
-                          saveOAuthConfig(nextConfig);
-                          setShowOAuthSetup(false);
-                          setStatus("Credenciais públicas salvas neste navegador. Agora clique em Google ou Apple para abrir o provedor real.");
-                        }}
-                        onClear={() => {
-                          clearOAuthConfig();
-                          setShowOAuthSetup(true);
-                          setStatus("Credenciais locais removidas. Configure os IDs públicos ou os secrets do GitHub para usar OAuth real.");
-                        }}
-                      />
-                    )}
 
                     <div className="account-type-toggle">
                       <button type="button" className={accountType === "personal" ? "active" : ""} onClick={() => setAccountType("personal")}>
@@ -2061,34 +1938,27 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                   </>
                 ) : (
                   <>
-                    <div className="connector-choice-row login-connectors">
-                      <button className="connector-choice" type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
-                        <Globe2 size={19} />
-                        <span><strong>{googleClientConfigured ? "Entrar com Google" : "Google OAuth pendente"}</strong><small>{googleClientConfigured ? "reconstruir contatos" : "adicione VITE_GOOGLE_CLIENT_ID"}</small></span>
-                        <ChevronRight size={16} />
-                      </button>
-                      <button className="connector-choice" type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
-                        <UserRound size={19} />
-                        <span><strong>{appleClientConfigured ? "Entrar com Apple" : "Apple OAuth pendente"}</strong><small>{appleClientConfigured ? "identidade + vCard" : "adicione Service ID"}</small></span>
-                        <ChevronRight size={16} />
-                      </button>
+                    <div className="simple-auth-panel">
+                      <div className="simple-auth-head">
+                        <KeyRound size={20} />
+                        <div>
+                          <strong>Outras maneiras de entrar</strong>
+                          <small>Clique no provedor e autorize o Grafy. Sem passos técnicos para o usuário.</small>
+                        </div>
+                      </div>
+                      <div className="auth-provider-grid two-options" aria-label="Maneiras de entrar">
+                        <button className="provider-option google" type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
+                          <span className="provider-logo google">G</span>
+                          <strong>{googleImporting ? "Abrindo Google..." : "Entrar com Google"}</strong>
+                          <small>Reconstruir contatos</small>
+                        </button>
+                        <button className="provider-option apple" type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
+                          <span className="provider-logo apple"><UserRound size={18} /></span>
+                          <strong>{appleIdentityImporting ? "Abrindo Apple..." : "Entrar com Apple"}</strong>
+                          <small>Identidade Apple</small>
+                        </button>
+                      </div>
                     </div>
-                    {(showOAuthSetup || !googleClientConfigured || !appleClientConfigured) && (
-                      <OAuthSetupPanel
-                        config={oauthConfig}
-                        compact
-                        onSave={(nextConfig) => {
-                          saveOAuthConfig(nextConfig);
-                          setShowOAuthSetup(false);
-                          setStatus("Credenciais públicas salvas. Tente entrar novamente com Google ou Apple.");
-                        }}
-                        onClear={() => {
-                          clearOAuthConfig();
-                          setShowOAuthSetup(true);
-                          setStatus("Credenciais locais removidas.");
-                        }}
-                      />
-                    )}
                     <div className="signup-form-grid">
                       <label>
                         Email
@@ -2792,14 +2662,11 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
   const [googleStatus, setGoogleStatus] = useState("");
   const [googleImporting, setGoogleImporting] = useState(false);
   const [appleStatus, setAppleStatus] = useState("");
-  const [showOAuthSetup, setShowOAuthSetup] = useState(false);
   const [vcardText, setVcardText] = useState("");
   const [icsText, setIcsText] = useState("");
   const [linkedinQuery, setLinkedinQuery] = useState("");
   const {
     oauthConfig,
-    saveOAuthConfig,
-    clearOAuthConfig,
     googleClientConfigured
   } = useOAuthRuntimeConfig();
   const textPreview = useMemo(() => {
@@ -2916,8 +2783,7 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
 
   const connectGoogle = async () => {
     if (!googleClientConfigured) {
-      setShowOAuthSetup(true);
-      setGoogleStatus("Google ainda não está ativo neste deploy. Informe um Google Client ID público ou configure VITE_GOOGLE_CLIENT_ID para abrir OAuth real.");
+      setGoogleStatus("Google ainda não está ativado nesta publicação. Em produção, este botão abre o Google direto e importa os dados autorizados pelo usuário.");
       return;
     }
     setGoogleImporting(true);
@@ -3059,26 +2925,10 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
           <div className="button-row">
             <button className="secondary-button compact" onClick={connectGoogle} disabled={googleImporting}>
               <Globe2 size={16} />
-              {googleClientConfigured ? "Conectar Google real" : "Configurar Client ID"}
+              {googleClientConfigured ? "Conectar Google real" : "Entrar com Google"}
             </button>
           </div>
-          {(showOAuthSetup || !googleClientConfigured) && (
-            <OAuthSetupPanel
-              config={oauthConfig}
-              compact
-              onSave={(nextConfig) => {
-                saveOAuthConfig(nextConfig);
-                setShowOAuthSetup(false);
-                setGoogleStatus("Google Client ID salvo neste navegador. Clique em Conectar Google real para abrir o consentimento.");
-              }}
-              onClear={() => {
-                clearOAuthConfig();
-                setShowOAuthSetup(true);
-                setGoogleStatus("Credenciais locais removidas.");
-              }}
-            />
-          )}
-          <span className={googleClientConfigured ? "status-pill live" : "status-pill"}>{googleClientConfigured ? "client id detectado" : "não configurado"}</span>
+          <span className={googleClientConfigured ? "status-pill live" : "status-pill"}>{googleClientConfigured ? "Google ativo" : "aguardando ativação"}</span>
         </section>
 
         <section className="integration-card tall apple-data-hub">
@@ -3217,7 +3067,7 @@ function IntegrationsView({ state, setView }: AppShellProps) {
     {
       name: "Google Contacts",
       icon: Globe2,
-      status: googleClientConfigured ? "OAuth real disponível" : "Precisa Client ID",
+      status: googleClientConfigured ? "OAuth real disponível" : "Integração pendente",
       tone: googleClientConfigured ? "live" : "",
       description:
         "Fonte principal do comprador B2C: contatos salvos pelo usuário com consentimento, People API e backend seguro para tokens.",
@@ -3229,7 +3079,7 @@ function IntegrationsView({ state, setView }: AppShellProps) {
     {
       name: "Google Calendar",
       icon: CalendarClock,
-      status: googleClientConfigured ? "Agenda autorizável" : "Precisa Client ID",
+      status: googleClientConfigured ? "Agenda autorizável" : "Integração pendente",
       tone: "attention",
       description:
         "Lê eventos e participantes autorizados para entender encontros, reuniões, hubs e follow-ups sem invadir dados privados.",
@@ -4140,7 +3990,7 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
     {
       name: "Google Contacts",
       icon: Globe2,
-      status: googleClientConfigured ? "OAuth disponível" : "Client ID pendente",
+      status: googleClientConfigured ? "OAuth disponível" : "Integração pendente",
       tone: googleClientConfigured ? "live" : "attention",
       body: "Login Google + People API para puxar nome, sobrenome, email, telefone e foto salvos pelo usuário.",
       action: "Preparar Google OAuth",

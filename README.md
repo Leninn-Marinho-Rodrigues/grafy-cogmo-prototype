@@ -124,12 +124,12 @@ http://127.0.0.1:5173/
 
 ### OAuth real: Google e Apple
 
-O protótipo não usa client secret no front-end. Para o botão abrir o provedor real, configure apenas os IDs públicos:
+O protótipo não usa client secret no front-end. A tela de login é simples para o usuário final: ele só clica em Google ou Apple. Para o botão abrir o provedor real, o ambiente do app precisa ter os IDs públicos configurados uma única vez pelo time técnico:
 
 1. No Google Cloud Console, crie um OAuth Client ID do tipo **Web application**.
 2. Habilite **People API** e **Google Calendar API** no mesmo projeto.
 3. Adicione as origens autorizadas `http://127.0.0.1:5173` e `https://leninn-marinho-rodrigues.github.io`.
-4. Salve o Client ID em `VITE_GOOGLE_CLIENT_ID` ou cole no painel de credenciais do onboarding para teste local no navegador.
+4. Salve o Client ID em `VITE_GOOGLE_CLIENT_ID` no ambiente local ou nos secrets do GitHub Pages.
 5. No Apple Developer, configure **Sign in with Apple for the Web** com Service ID e Return URL exata do deploy. No web, Apple ID autentica a pessoa; contatos do iCloud entram por `.vcf` e agenda por `.ics`.
 
 Para publicar no GitHub Pages, crie estes secrets no repositório:
@@ -176,7 +176,7 @@ npm run preview -- --port 4176
 Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides/demo-script.md). A versão publicada é pensada para teste de navegação e apresentação do conceito:
 
 1. Abrir a escolha inicial e selecionar **Empresário** ou **Hub, evento ou empresa**.
-2. Para empresário, conectar Google quando o Client ID estiver configurado ou importar Apple `.vcf/.ics`.
+2. Para empresário, conectar Google quando a integração estiver ativada ou importar Apple `.vcf/.ics`.
 3. Para hub/evento/empresa, carregar uma base real em Excel, CSV ou JSON com pessoas, empresa, cargo, área, tags, demanda e solução.
 4. Mostrar dashboard, contatos, grafo, grupos, rede pública e chat usando os dados importados.
 5. Explicar que os dados ficam no navegador neste protótipo.
@@ -192,7 +192,7 @@ Links úteis:
 
 - O login atual ainda é local no protótipo; a experiência já está orientada a conectar/importar dados reais, mas autenticação persistente entra na fase Supabase/Google.
 - Dados de teste são persistidos no navegador de cada pessoa, não em um banco compartilhado.
-- Google Contacts e Google Calendar tentam OAuth real já no onboarding quando `VITE_GOOGLE_CLIENT_ID` está configurado; sem isso, o protótipo mostra a pendência e não injeta contatos artificiais.
+- Google Contacts e Google Calendar tentam OAuth real já no onboarding quando `VITE_GOOGLE_CLIENT_ID` está configurado; sem isso, o protótipo mostra uma mensagem amigável de integração ainda não ativada e não injeta contatos artificiais.
 - Sign in with Apple no web resolve identidade, mas não libera a agenda de contatos do iCloud. Por isso, Apple Contacts funciona no web por vCard/.vcf e Apple Agenda por `.ics`; acesso direto exige app nativo ou wrapper mobile com Contacts/EventKit.
 - LinkedIn, Meetup, Instagram e X/Twitter aparecem como direção técnica e conectores preparados, não como coleta real em produção.
 - Enriquecimento externo deve ser feito com APIs oficiais, consentimento e revisão humana; o sistema não deve depender de scraping logado.
