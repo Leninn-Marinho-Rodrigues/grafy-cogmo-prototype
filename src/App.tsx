@@ -97,17 +97,25 @@ const linkLabels: Record<LinkKind, string> = {
 const mobileNavOrder: ViewKey[] = ["dashboard", "contacts", "graph", "import", "integrations", "chat"];
 const groupColorOptions = ["#66e7ff", "#a993ff", "#ffd166", "#60f2d5", "#ff7aa8", "#31d17f"];
 type AudienceMode = "personal" | "hub";
-type LandingMode = "choice" | AudienceMode;
+type SignupLandingMode = "signupPersonal" | "signupHub";
+type LandingMode = "choice" | AudienceMode | SignupLandingMode;
 type AuthMode = "signup" | "login";
 type AccountType = "personal" | "company";
 type AuthLoginHandler = (email: string, importedContacts?: Contact[], targetView?: ViewKey) => void;
 
 const getLandingModeFromHash = (): LandingMode => {
   const hash = window.location.hash.toLowerCase();
+  if (hash.includes("cadastro") && hash.includes("hubs")) return "signupHub";
+  if (hash.includes("cadastro")) return "signupPersonal";
   if (hash.includes("hubs")) return "hub";
   if (hash.includes("empresarios")) return "personal";
   return "choice";
 };
+
+const getAudienceFromLandingMode = (mode: LandingMode): AudienceMode =>
+  mode === "hub" || mode === "signupHub" ? "hub" : "personal";
+
+const isSignupLandingMode = (mode: LandingMode) => mode === "signupPersonal" || mode === "signupHub";
 
 const digitsOnly = (value: string) => value.replace(/\D/g, "");
 
@@ -1060,7 +1068,8 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
     match: string;
     demand: string;
   }>;
-  const audienceMode: AudienceMode = landingMode === "choice" ? "personal" : landingMode;
+  const isSignupLanding = isSignupLandingMode(landingMode);
+  const audienceMode = getAudienceFromLandingMode(landingMode);
   const activeCopy = landingCopy[audienceMode];
   const SpecificLandingPage = audienceMode === "personal" ? PersonalLandingPage : HubLandingPage;
   const passwordChecks = useMemo(() => getPasswordChecks(password, confirmPassword), [password, confirmPassword]);
@@ -1086,8 +1095,9 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
   }, []);
 
   useEffect(() => {
-    if (landingMode === "hub") setAccountType("company");
-  }, [landingMode]);
+    if (audienceMode === "hub") setAccountType("company");
+    else if (landingMode === "signupPersonal") setAccountType("personal");
+  }, [audienceMode, landingMode]);
 
   useEffect(() => {
     const cepDigits = digitsOnly(cep);
@@ -1120,7 +1130,15 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 
   const changeLandingMode = (mode: LandingMode) => {
     setLandingMode(mode);
-    window.history.replaceState(null, "", mode === "choice" ? "#/" : landingCopy[mode].hash);
+    const nextHash =
+      mode === "choice"
+        ? "#/"
+        : mode === "signupPersonal"
+          ? "#/cadastro/empresarios"
+          : mode === "signupHub"
+            ? "#/cadastro/hubs-eventos"
+            : landingCopy[mode].hash;
+    window.history.replaceState(null, "", nextHash);
   };
 
   const submit = (event: FormEvent) => {
@@ -1367,22 +1385,49 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
       ) : (
         <>
           <motion.section
-            className={`auth-hero audience-hero audience-hero-${audienceMode}`}
+            className={`auth-hero audience-hero audience-hero-${audienceMode} ${isSignupLanding ? "signup-landing-hero" : ""}`}
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, ease: "easeOut" }}
           >
             <div className="auth-copy audience-copy">
               <h1>
-                <span>{activeCopy.headlineA}</span>
-                <span className="gradient-text">{activeCopy.headlineB}</span>
+                <span>{isSignupLanding ? (audienceMode === "personal" ? "Crie sua conta" : "Cadastre seu hub") : activeCopy.headlineA}</span>
+                <span className="gradient-text">
+                  {isSignupLanding
+                    ? audienceMode === "personal"
+                      ? "conectando contatos reais"
+                      : "com uma base real"
+                    : activeCopy.headlineB}
+                </span>
               </h1>
-              <p>{activeCopy.body}</p>
+              <p>
+                {isSignupLanding
+                  ? audienceMode === "personal"
+                    ? "Escolha Google ou Apple para criar a conta. O Google já solicita permissão de contatos e agenda; no Apple web, vincule o Apple ID e carregue seus contatos exportados para o Grafy montar a rede."
+                    : "Crie a conta do hub, qualifique os dados da organização e carregue a base de participantes em Excel, CSV ou JSON para abrir o workspace com relações reais."
+                  : activeCopy.body}
+              </p>
               <div className="auth-proof">
                 <span><Lock size={15} /> {activeCopy.proof[0]}</span>
                 <span><Network size={15} /> {activeCopy.proof[1]}</span>
                 <span><Sparkles size={15} /> {activeCopy.proof[2]}</span>
               </div>
+              {isSignupLanding && (
+                <div className="signup-path-panel">
+                  {[
+                    ["1", "Criar conta", audienceMode === "personal" ? "Google ou Apple" : "Admin do hub"],
+                    ["2", "Conectar contatos", audienceMode === "personal" ? "Google Contacts ou Apple vCard" : "Excel, CSV ou JSON"],
+                    ["3", "Abrir Grafy", "Grafo, filtros e oportunidades"]
+                  ].map(([step, title, body]) => (
+                    <span key={step}>
+                      <i>{step}</i>
+                      <strong>{title}</strong>
+                      <small>{body}</small>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="auth-value-grid">
                 {activeCopy.cards.map((card) => (
                   <Info key={card.label} icon={card.icon} label={card.label} value={card.value} />
@@ -1424,6 +1469,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                 </div>
               </motion.div>
 
+              {isSignupLanding && (
               <form className={`auth-card auth-ingestion-card signup-card signup-card-${authMode}`} onSubmit={submit}>
                 <div className="auth-card-head signup-head">
                   <div>
@@ -1449,8 +1495,18 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                     <div className="source-requirement">
                       <Fingerprint size={20} />
                       <div>
-                        <strong>Google ou Apple é obrigatório para construir seu network.</strong>
-                        <small>{hasIdentitySource ? "Fonte conectada. Agora complete os dados para qualificar o grafo." : "Conecte uma fonte real antes de concluir o cadastro."}</small>
+                        <strong>
+                          {audienceMode === "personal"
+                            ? "Google ou Apple é obrigatório para construir seu network."
+                            : "Google ou Apple identifica o admin; a base real alimenta o hub."}
+                        </strong>
+                        <small>
+                          {hasIdentitySource
+                            ? "Fonte conectada. Agora complete os dados para qualificar o grafo."
+                            : audienceMode === "personal"
+                              ? "Conecte uma fonte real antes de concluir o cadastro."
+                              : "Vincule o admin quando possível e carregue Excel, CSV ou JSON para criar a rede compartilhada."}
+                        </small>
                       </div>
                     </div>
 
@@ -1458,15 +1514,15 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                       <button className={`connector-choice ${googleConnected ? "connected" : ""}`} type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
                         <Globe2 size={19} />
                         <span>
-                          <strong>{googleImporting ? "Conectando Google..." : "Google Contacts"}</strong>
-                          <small>{googleClientConfigured ? "People API + Agenda" : "Client ID pendente"}</small>
+                          <strong>{googleImporting ? "Conectando Google..." : "Criar com Google"}</strong>
+                          <small>{googleClientConfigured ? "Conta + Contacts + Agenda" : "Client ID pendente"}</small>
                         </span>
                         <BadgeCheck size={16} />
                       </button>
                       <button className={`connector-choice ${appleConnected || applePreviewCount ? "connected" : ""}`} type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
                         <UserRound size={19} />
                         <span>
-                          <strong>{appleIdentityImporting ? "Vinculando Apple..." : "Apple"}</strong>
+                          <strong>{appleIdentityImporting ? "Vinculando Apple..." : "Criar com Apple"}</strong>
                           <small>{appleClientConfigured ? "Apple ID + vCard" : "Apple ID pendente"}</small>
                         </span>
                         <BadgeCheck size={16} />
@@ -1713,119 +1769,20 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                 <p className="prototype-note">
                   Dados ficam neste navegador. Google usa OAuth/People API quando configurado; Apple no PWA usa Sign in with Apple para identidade e .vcf/.ics para contatos.
                 </p>
-                {status && <p className="auth-status">{status}</p>}
-              </form>
-
-              <form className="auth-card auth-ingestion-card legacy-auth-card" onSubmit={submit}>
-                <div className="auth-card-head">
-                  <div>
-                    <h2>{audienceMode === "personal" ? "Vincule sua conta e traga contatos reais" : "Carregue a base real do hub"}</h2>
-                    <p>
-                      {audienceMode === "personal"
-                        ? "O Grafy só fica útil quando nasce da sua agenda: Google Contacts/Agenda ou arquivos Apple exportados."
-                        : "Suba Excel, CSV ou JSON com participantes, membros, empresas e contatos do evento para gerar grafo e grupos."}
-                    </p>
-                  </div>
-                  <span className="status-dot live" />
-                </div>
-
-                {audienceMode === "personal" ? (
-                  <>
-                    <button className="google-button connector-first-button" type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
-                      <Globe2 size={18} />
-                      {googleImporting ? "Conectando Google..." : "Entrar com Google e importar contatos reais"}
-                      <small>{googleClientConfigured ? "People API + Agenda" : "configure Client ID"}</small>
-                    </button>
-                    <button className="secondary-button apple-id-button" type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
-                      <UserRound size={17} />
-                      {appleIdentityImporting ? "Vinculando Apple..." : "Vincular Apple ID"}
-                      <small>{appleClientConfigured ? "Sign in with Apple" : "Service ID pendente"}</small>
-                    </button>
-                    <div className="apple-onboarding">
-                      <div className="onboarding-source-card">
-                        <strong>Apple Contacts</strong>
-                        <small>Carregue o .vcf exportado do iCloud/Contatos.</small>
-                        <input
-                          className="file-input"
-                          type="file"
-                          accept=".vcf,text/vcard,text/x-vcard"
-                          onChange={(event) => handleTextFile(event, setAppleVcardText, "vCard Apple")}
-                        />
-                      </div>
-                      <div className="onboarding-source-card">
-                        <strong>Apple Agenda</strong>
-                        <small>Carregue .ics para transformar participantes em contexto.</small>
-                        <input
-                          className="file-input"
-                          type="file"
-                          accept=".ics,text/calendar"
-                          onChange={(event) => handleTextFile(event, setAppleIcsText, "Agenda Apple")}
-                        />
-                      </div>
-                    </div>
-                    <div className="onboarding-preview-row">
-                      <span>{applePreviewCount ? `${applePreviewCount} contato(s) Apple prontos` : "Apple no web: identidade por Apple ID; contatos por .vcf/.ics"}</span>
-                      <button className="primary-button compact" type="button" onClick={handleAppleLogin} disabled={!applePreviewCount}>
-                        <Upload size={16} />
-                        Entrar importando Apple
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="hub-ingestion-panel">
-                    <label className="hub-file-drop">
-                      <Database size={20} />
-                      <span>
-                        <strong>Excel, CSV ou JSON da base</strong>
-                        <small>Use colunas como nome, email, telefone, empresa, cargo, área, tags, demanda, resolve e LinkedIn.</small>
-                      </span>
-                      <input type="file" accept=".xlsx,.xls,.csv,.json,text/csv,application/json" onChange={handleHubFile} />
-                    </label>
-                    <label>
-                      Colar CSV ou JSON
-                      <textarea
-                        className="csv-box compact-ingestion-box"
-                        value={hubImportText}
-                        onChange={(event) => handleHubImportTextChange(event.target.value)}
-                        placeholder="nome,email,telefone,empresa,cargo,area,tags,demanda,resolve,linkedin"
-                      />
-                    </label>
-                    <div className="data-preview-summary">
-                      <span>{hubFileName || `${hubImportSource} colado`}</span>
-                      <strong>{hubPreview.length} pessoa(s) reconhecida(s)</strong>
-                      <small>{hubPreview.slice(0, 3).map((contact) => contact.name).filter(Boolean).join(" · ") || "Carregue uma base para ver o preview."}</small>
-                    </div>
-                    <button className="primary-button" type="button" onClick={handleHubWorkspaceLogin} disabled={hubImporting || !hubPreview.length}>
-                      <Users size={18} />
-                      Criar workspace do hub com {hubPreview.length || "dados reais"}
-                    </button>
-                  </div>
-                )}
-
-                <div className="auth-divider"><span>identificação do workspace</span></div>
-                <label>
-                  Email do usuário ou administrador
-                  <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="voce@empresa.com" />
-                </label>
-                <button className="secondary-button" type="submit">
-                  <KeyRound size={18} />
-                  Ver exigências antes de entrar
+                <button className="secondary-button signup-back-button" type="button" onClick={() => changeLandingMode(audienceMode)}>
+                  <ChevronRight size={17} />
+                  Voltar para a trilha escolhida
                 </button>
-                <p className="prototype-note">
-                  Dados ficam neste navegador. Google usa OAuth/People API quando configurado; Apple no PWA usa Sign in with Apple para identidade e .vcf/.ics para contatos.
-                </p>
                 {status && <p className="auth-status">{status}</p>}
               </form>
+              )}
             </div>
           </motion.section>
 
-          <SpecificLandingPage
+          {!isSignupLanding && <SpecificLandingPage
             onModeChange={changeLandingMode}
-            onLogin={() => {
-              window.scrollTo({ top: 0, behavior: "smooth" });
-              setStatus("Use o cartão de entrada acima para abrir o Grafy com contatos reais, não com uma base artificial.");
-            }}
-          />
+            onLogin={() => changeLandingMode(audienceMode === "personal" ? "signupPersonal" : "signupHub")}
+          />}
         </>
       )}
     </div>
@@ -2020,13 +1977,13 @@ function AudienceDetailLanding({
 
       <section className="audience-cta-band">
         <div>
-          <h2>{mode === "personal" ? "Começar pela minha rede privada." : "Montar um hub demonstrativo."}</h2>
-          <p>O protótipo abre com dados locais para teste e mantém os conectores no primeiro passo da experiência.</p>
+          <h2>{mode === "personal" ? "Criar conta e conectar minha agenda." : "Criar conta do hub com base real."}</h2>
+          <p>{mode === "personal" ? "A próxima tela é só de cadastro: Google ou Apple primeiro, contatos reais logo em seguida." : "A próxima tela é só de cadastro: dados da organização e base de participantes antes do workspace."}</p>
         </div>
         <div className="audience-actions centered">
           <button className="primary-button glow-button" onClick={onLogin}>
             {mode === "personal" ? <ContactRound size={18} /> : <Users size={18} />}
-            Abrir protótipo
+            {mode === "personal" ? "Ir para cadastro pessoal" : "Ir para cadastro do hub"}
           </button>
           <button className="secondary-button" onClick={() => onModeChange(otherMode)}>
             <ChevronRight size={18} />

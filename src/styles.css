@@ -954,10 +954,6 @@ label {
   line-height: 1.45;
 }
 
-.legacy-auth-card {
-  display: none;
-}
-
 .signup-card {
   grid-template-columns: 1fr;
   gap: 14px;
@@ -1251,6 +1247,11 @@ label {
   min-height: 48px;
 }
 
+.signup-back-button {
+  justify-content: center;
+  grid-column: 1 / -1;
+}
+
 .choice-landing {
   position: relative;
   z-index: 2;
@@ -1455,6 +1456,64 @@ label {
   align-items: start;
   gap: clamp(30px, 5vw, 74px);
   padding: clamp(30px, 5vw, 58px) 0 38px;
+}
+
+.signup-landing-hero {
+  min-height: calc(100vh - 86px);
+  grid-template-columns: minmax(320px, 0.74fr) minmax(480px, 1.26fr);
+  align-items: start;
+  padding-bottom: clamp(30px, 5vw, 70px);
+}
+
+.signup-landing-hero .audience-product-column {
+  gap: 0;
+}
+
+.signup-landing-hero .product-preview {
+  display: none;
+}
+
+.signup-path-panel {
+  width: min(100%, 620px);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.signup-path-panel span {
+  display: grid;
+  gap: 5px;
+  border: 1px solid rgba(102, 231, 255, 0.18);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(96, 242, 213, 0.13), transparent 48%),
+    rgba(255, 255, 255, 0.055);
+  padding: 12px;
+}
+
+.signup-path-panel i {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: rgba(102, 231, 255, 0.13);
+  color: var(--cyan);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.signup-path-panel strong {
+  color: #effaff;
+  font-size: 13px;
+}
+
+.signup-path-panel small {
+  color: #9db7cc;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .audience-copy {
@@ -4307,6 +4366,7 @@ label {
   .landing-page-pair,
   .signup-head,
   .signup-form-grid,
+  .signup-path-panel,
   .connector-choice-row,
   .apple-onboarding,
   .apple-import-layout,
