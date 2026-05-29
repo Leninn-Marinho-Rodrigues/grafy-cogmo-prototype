@@ -39,11 +39,12 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
-import { initialState } from "./data";
+import { googlePreviewContactTemplates, initialState } from "./data";
 import {
   buildGraph,
   buildOpportunityMatches,
   extractDdd,
+  formatDddLocation,
   formatDate,
   getAllTags,
   getGraphFilterTags,
@@ -62,7 +63,7 @@ import type { Contact, CustomField, GrafyState, GraphNode, LinkKind, ViewKey } f
 
 const STORAGE_KEY = "grafy-state-v2";
 const SESSION_KEY = "grafy-session-v2";
-const APP_SCHEMA_VERSION = "ux-neural-2026-05-28-checklist";
+const APP_SCHEMA_VERSION = "google-data-hub-2026-05-29";
 
 const navItems: Array<{ key: ViewKey; label: string; icon: typeof Home }> = [
   { key: "dashboard", label: "Início", icon: Home },
@@ -166,7 +167,10 @@ function hydrateState(state: GrafyState): GrafyState {
       contactIds: group.contactIds ?? [],
       members: group.members ?? []
     })),
-    customFields: state.customFields ?? initialState.customFields,
+    customFields: [
+      ...initialState.customFields,
+      ...(state.customFields ?? []).filter((field) => !initialState.customFields.some((seedField) => seedField.id === field.id))
+    ],
     chatMessages: state.chatMessages ?? initialState.chatMessages
   };
 }
@@ -345,8 +349,32 @@ function App() {
   }, [session, view]);
 
   const addContact = (contact: Contact) => {
-    setState((current) => ({ ...current, contacts: [contact, ...current.contacts] }));
+    setState((current) => ({
+      ...current,
+      contacts: [contact, ...current.contacts],
+      groups: current.groups.map((group) => ({
+        ...group,
+        contactIds: contact.groupIds.includes(group.id) ? unique([...group.contactIds, contact.id]) : group.contactIds
+      }))
+    }));
     setSelectedContactId(contact.id);
+    setView("contacts");
+  };
+
+  const addContacts = (contacts: Contact[]) => {
+    if (!contacts.length) return;
+    setState((current) => ({
+      ...current,
+      contacts: [...contacts, ...current.contacts],
+      groups: current.groups.map((group) => ({
+        ...group,
+        contactIds: unique([
+          ...group.contactIds,
+          ...contacts.filter((contact) => contact.groupIds.includes(group.id)).map((contact) => contact.id)
+        ])
+      }))
+    }));
+    setSelectedContactId(contacts[0].id);
     setView("contacts");
   };
 
@@ -443,6 +471,7 @@ function App() {
       selectedContact={selectedContact}
       setSelectedContactId={setSelectedContactId}
       addContact={addContact}
+      addContacts={addContacts}
       updateContact={updateContact}
       deleteContact={deleteContact}
       approveMerge={approveMerge}
@@ -464,6 +493,7 @@ interface AppShellProps {
   selectedContact?: Contact;
   setSelectedContactId: (id: string) => void;
   addContact: (contact: Contact) => void;
+  addContacts: (contacts: Contact[]) => void;
   updateContact: (id: string, patch: Partial<Contact>) => void;
   deleteContact: (id: string) => void;
   approveMerge: (primaryId: string, duplicateId: string) => void;
@@ -580,10 +610,10 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
 
   const handleGoogleLogin = () => {
     if (!googleClientConfigured) {
-      setStatus("Google ainda não está configurado neste ambiente. Adicione VITE_GOOGLE_CLIENT_ID e o fluxo OAuth para ativar login e contatos reais.");
+      setStatus("Google ainda não está configurado neste ambiente. Adicione VITE_GOOGLE_CLIENT_ID e backend OAuth para ativar login, Contacts e Agenda reais.");
       return;
     }
-    setStatus("Cliente Google detectado. A próxima etapa é conectar OAuth seguro com Supabase e People API.");
+    setStatus("Cliente Google detectado. A próxima etapa é conectar OAuth seguro com Supabase, People API e Calendar API.");
   };
 
   return (
@@ -601,7 +631,7 @@ function AuthScreen({ onLogin }: { onLogin: (email: string) => void }) {
         </button>
         <div className="auth-topbar-actions">
           <span>Privado por padrão</span>
-          <span>Google Contacts ready</span>
+          <span>Google + Agenda ready</span>
           <span>PWA mobile-first</span>
         </div>
       </header>
@@ -734,6 +764,20 @@ function LandingSections({ onLogin }: { onLogin: () => void }) {
       meta: "pronto para IA"
     }
   ];
+  const customerPaths = [
+    {
+      title: "Empresário e conector individual",
+      subtitle: "B2C",
+      body: "Organiza contatos próprios, encontra clientes potenciais, prestadores, parceiros e pessoas certas para introduções.",
+      points: ["Google Contacts e CSV", "DDD e localização", "chat para achar oportunidades", "grafo privado"]
+    },
+    {
+      title: "Hub, evento ou empresa",
+      subtitle: "B2B / B2B2C",
+      body: "Carrega uma base de membros ou participantes, cria grupos compartilhados e ajuda a comunidade se conectar com contexto.",
+      points: ["importação em lote", "agenda e participantes", "grafo do grupo", "curadoria de matches"]
+    }
+  ];
 
   return (
     <div className="landing-flow">
@@ -761,6 +805,19 @@ function LandingSections({ onLogin }: { onLogin: () => void }) {
           ))}
         </div>
       </motion.section>
+
+      <section className="customer-paths">
+        {customerPaths.map((path) => (
+          <article className="customer-path-card spotlight-card" key={path.title}>
+            <span className="context group">{path.subtitle}</span>
+            <h3>{path.title}</h3>
+            <p>{path.body}</p>
+            <div className="connector-data-list">
+              {path.points.map((point) => <i key={point}>{point}</i>)}
+            </div>
+          </article>
+        ))}
+      </section>
 
       <section className="landing-card-grid">
         {sections.map((section, index) => {
@@ -794,7 +851,7 @@ function LandingSections({ onLogin }: { onLogin: () => void }) {
         transition={{ duration: 0.65, ease: "easeOut" }}
       >
         <div className="visual-copy">
-          <span className="context group">experiencia visual</span>
+          <span className="context group">experiência visual</span>
           <h2>O fundo acompanha o mouse para a rede parecer viva.</h2>
           <p>
             A camada de partículas usa canvas leve, conexões dinâmicas e um spotlight que reage ao cursor. Isso conversa
@@ -823,6 +880,8 @@ function Dashboard({ state, setView, setSelectedContactId }: AppShellProps) {
   const duplicates = getMergeSuggestions(state.contacts);
   const matches = buildOpportunityMatches(state.contacts);
   const publicCount = state.contacts.filter((contact) => contact.isPublic).length;
+  const googleContactsCount = state.contacts.filter((contact) => contact.source === "Google Contacts").length;
+  const calendarContactsCount = state.contacts.filter((contact) => contact.source === "Google Calendar").length;
   const upcoming = state.contacts
     .filter((contact) => contact.nextFollowUpAt)
     .sort((a, b) => String(a.nextFollowUpAt).localeCompare(String(b.nextFollowUpAt)))
@@ -864,7 +923,7 @@ function Dashboard({ state, setView, setSelectedContactId }: AppShellProps) {
       <div className="onboarding-strip">
         {[
           ["1", "Perfil", state.profile.visibility === "platform" ? "visível na rede" : "privado por padrão"],
-          ["2", "Importação", "CSV pronto, Google pendente"],
+          ["2", "Importação", `${googleContactsCount + calendarContactsCount} sinais Google`],
           ["3", "Dedupe", `${duplicates.length} sugestão`],
           ["4", "Primeiros insights", `${matches.length} matches`]
         ].map(([step, title, body]) => (
@@ -875,6 +934,27 @@ function Dashboard({ state, setView, setSelectedContactId }: AppShellProps) {
           </button>
         ))}
       </div>
+
+      <section className="customer-mode-panel">
+        <article>
+          <span className="context public">empresário</span>
+          <h3>Organizar e monetizar a própria rede</h3>
+          <p>Ideal para quem quer cruzar Google Contacts, agenda, DDD, tags, cargos e demandas para achar clientes, fornecedores e parceiros.</p>
+          <button className="secondary-button compact" onClick={() => setView("import")}>
+            <Globe2 size={15} />
+            Conectar fontes pessoais
+          </button>
+        </article>
+        <article>
+          <span className="context group">hub / evento / empresa</span>
+          <h3>Conectar pessoas dentro de uma base compartilhada</h3>
+          <p>Ideal para comunidades, eventos e empresas que querem importar membros, criar grupos e sugerir introduções com governança.</p>
+          <button className="secondary-button compact" onClick={() => setView("groups")}>
+            <Users size={15} />
+            Montar grupo compartilhado
+          </button>
+        </article>
+      </section>
 
       <div className="metric-grid">
         <Metric icon={ContactRound} label="Contatos" value={state.contacts.length} tone="cyan" />
@@ -1065,6 +1145,10 @@ function ContactDetail({
     setDraftTags(contact.tags.join(", "));
   }, [contact.id, contact.tags]);
 
+  const customEntries = Object.entries(contact.customFields).filter(([, value]) =>
+    Array.isArray(value) ? value.length > 0 : value !== "" && value !== undefined && value !== null
+  );
+
   return (
     <div className="contact-detail">
       <div className="contact-header">
@@ -1122,9 +1206,29 @@ function ContactDetail({
       <div className="info-grid">
         <Info icon={Mail} label="Emails" value={contact.emails.join(", ") || "Sem email"} />
         <Info icon={Phone} label="Telefones" value={contact.phones.join(", ") || "Sem telefone"} />
-        <Info icon={CircleDot} label="DDD" value={contact.ddd ? `DDD ${contact.ddd}` : "Não calculado"} />
+        <Info icon={CircleDot} label="Localidade por DDD" value={formatDddLocation(contact.ddd)} />
         <Info icon={Database} label="Fonte" value={contact.source} />
       </div>
+
+      {customEntries.length > 0 && (
+        <div className="custom-field-grid">
+          {customEntries.map(([key, value]) => (
+            <Info
+              key={key}
+              icon={Tags}
+              label={formatCustomFieldKey(key)}
+              value={Array.isArray(value) ? value.join(", ") : String(value)}
+            />
+          ))}
+        </div>
+      )}
+
+      {contact.notes && (
+        <div className="notes-card">
+          <strong>Contexto interno</strong>
+          <p>{contact.notes}</p>
+        </div>
+      )}
 
       <div className="link-row">
         {contact.links.map((link) => (
@@ -1208,7 +1312,7 @@ function ContactForm({ onSave, onCancel }: { onSave: (contact: Contact) => void;
   );
 }
 
-function ImportView({ addContact, state, setView }: AppShellProps) {
+function ImportView({ addContacts, state, setView }: AppShellProps) {
   const exampleCsv = `nome,email,telefone,tags,descricao,demanda,resolve
 Paula Andrade,paula@pa.com,85999990000,"educação,IA,treinamento,B2B","Treinadora corporativa em IA","Busca empresas para programas de capacitação","Treinamentos de IA aplicada"
 Diego Martins,diego@ops.com,11933334444,"operações,logística,PME,consultoria","Consultor de operações","Procura PMEs com gargalos operacionais","Melhora processos e indicadores"`;
@@ -1219,9 +1323,10 @@ Diego Martins,diego@ops.com,11933334444,"operações,logística,PME,consultoria"
   const googleClientConfigured = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
 
   const importContacts = () => {
-    preview.forEach((partial) => {
+    const now = new Date().toISOString();
+    const contacts: Contact[] = preview.map((partial) => {
       const phones = partial.phones ?? [];
-      addContact({
+      return {
         id: uid("ct"),
         name: partial.name ?? "Contato sem nome",
         headline: partial.headline ?? "",
@@ -1238,18 +1343,31 @@ Diego Martins,diego@ops.com,11933334444,"operações,logística,PME,consultoria"
         isPublic: false,
         groupIds: [],
         customFields: {},
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
+        createdAt: now,
+        updatedAt: now
+      };
     });
+    addContacts(contacts);
+  };
+
+  const importGoogleSample = () => {
+    const now = new Date().toISOString();
+    const contacts: Contact[] = googlePreviewContactTemplates.map((template) => ({
+      ...template,
+      id: uid("ct"),
+      createdAt: now,
+      updatedAt: now
+    }));
+    addContacts(contacts);
+    setGoogleStatus("Amostra Google + Agenda importada. Abra o grafo para ver fontes, DDDs, eventos, grupos e matches novos.");
   };
 
   const connectGoogle = () => {
     if (!googleClientConfigured) {
-      setGoogleStatus("Google Contacts ainda não está ativo. Configure VITE_GOOGLE_CLIENT_ID, origem OAuth e uma Edge Function/Supabase para usar People API com segurança.");
+      setGoogleStatus("Google ainda não está ativo neste deploy. A arquitetura correta é Supabase Auth + OAuth incremental + Edge Function para People API e Calendar API. Use a amostra abaixo para validar a experiência.");
       return;
     }
-    setGoogleStatus("Cliente Google encontrado. Próxima etapa: abrir consentimento OAuth e importar via People API.");
+    setGoogleStatus("Cliente Google encontrado. Próxima etapa: abrir consentimento OAuth separado para contatos e agenda, mostrar preview e importar somente após aprovação.");
   };
 
   const openLinkedinResearch = (name: string) => {
@@ -1293,19 +1411,56 @@ Diego Martins,diego@ops.com,11933334444,"operações,logística,PME,consultoria"
           </div>
         </section>
 
-        <section className="integration-card tall">
+        <section className="integration-card tall google-data-hub">
           <div>
-            <h3>Google / Gmail Contacts</h3>
+            <h3>Google Data Hub</h3>
             <p>
-              Para puxar contatos reais do email, o Grafy precisa de OAuth Google, escopo de contatos e backend seguro para
-              tokens. Este ambiente ainda não tem client id configurado.
+              Caminho oficial para entrar com Google, puxar contatos salvos e ler agenda com participantes/eventos. O MVP
+              real deve pedir consentimento separado para People API e Calendar API, mostrar preview e só gravar após aprovação.
             </p>
             {googleStatus && <p className="integration-note">{googleStatus}</p>}
           </div>
-          <button className="secondary-button compact" onClick={connectGoogle}>
-            <Globe2 size={16} />
-            Testar Google
-          </button>
+          <div className="google-source-flow">
+            {[
+              ["1", "Login Google", "Identidade do usuário"],
+              ["2", "Contacts", "Nome, email, telefone e foto"],
+              ["3", "Agenda", "Eventos, participantes e contexto"],
+              ["4", "Enriquecer", "DDD, merge, tags e grafo"]
+            ].map(([step, title, body]) => (
+              <div key={step}>
+                <span>{step}</span>
+                <strong>{title}</strong>
+                <small>{body}</small>
+              </div>
+            ))}
+          </div>
+          <div className="google-preview-list">
+            {googlePreviewContactTemplates.map((contact) => {
+              const alreadyImported = state.contacts.some((item) =>
+                item.emails.some((email) => contact.emails.includes(email))
+              );
+              return (
+                <div key={contact.emails[0]} className={alreadyImported ? "google-preview-row imported" : "google-preview-row"}>
+                  <span className="avatar small">{initials(contact.name)}</span>
+                  <div>
+                    <strong>{contact.name}</strong>
+                    <small>{contact.source} · {formatDddLocation(contact.ddd)}</small>
+                  </div>
+                  {alreadyImported && <em>já importado</em>}
+                </div>
+              );
+            })}
+          </div>
+          <div className="button-row">
+            <button className="secondary-button compact" onClick={connectGoogle}>
+              <Globe2 size={16} />
+              Testar OAuth
+            </button>
+            <button className="primary-button compact" onClick={importGoogleSample}>
+              <CalendarClock size={16} />
+              Importar amostra Google + Agenda
+            </button>
+          </div>
           <span className={googleClientConfigured ? "status-pill live" : "status-pill"}>{googleClientConfigured ? "client id detectado" : "não configurado"}</span>
         </section>
 
@@ -1366,10 +1521,22 @@ function IntegrationsView({ state, setView }: AppShellProps) {
       status: googleClientConfigured ? "OAuth quase pronto" : "Precisa client id",
       tone: googleClientConfigured ? "live" : "",
       description:
-        "Fonte principal para importar contatos reais do Gmail com consentimento, People API e backend seguro para tokens.",
-      data: ["Nome", "emails", "telefones", "foto", "origem Google"],
-      graph: ["importado de", "tem DDD", "possível duplicado"],
+        "Fonte principal do comprador B2C: contatos salvos pelo usuário com consentimento, People API e backend seguro para tokens.",
+      data: ["nome", "sobrenome", "emails", "telefones", "foto"],
+      graph: ["importado de", "tem DDD", "possível duplicado", "localidade"],
       action: "Abrir importação",
+      url: "internal"
+    },
+    {
+      name: "Google Calendar",
+      icon: CalendarClock,
+      status: "Agenda autorizada",
+      tone: "attention",
+      description:
+        "Lê eventos e participantes autorizados para entender encontros, reuniões, hubs e follow-ups sem invadir dados privados.",
+      data: ["eventos", "participantes", "organizador", "data", "local"],
+      graph: ["participou de", "conhecido em", "grupo/evento", "follow-up"],
+      action: "Ver amostra",
       url: "internal"
     },
     {
@@ -1417,8 +1584,9 @@ function IntegrationsView({ state, setView }: AppShellProps) {
           <span className="context public">arquitetura de dados</span>
           <h2>Conectores para dados reais de networking</h2>
           <p>
-            O Grafy deve importar dados reais com consentimento, mostrar preview, sugerir merge e só enriquecer contatos
-            quando o usuário aprovar. Essa é a base para usar Google, LinkedIn, Meetup e APIs futuras sem quebrar privacidade.
+            O Grafy atende dois cenários: o empresário que quer organizar a própria rede e o hub/evento/empresa que quer
+            conectar uma base compartilhada. As integrações precisam importar com consentimento, mostrar preview, sugerir merge
+            e só enriquecer contatos quando o usuário aprovar.
           </p>
         </div>
         <div className="connector-metrics">
@@ -1426,6 +1594,19 @@ function IntegrationsView({ state, setView }: AppShellProps) {
           <Info icon={ShieldCheck} label="Privacidade" value="Contato privado por padrão, público só com opt-in" />
           <Info icon={Network} label="Grafo" value="Toda fonte vira nó, relação e filtro visual" />
         </div>
+      </section>
+
+      <section className="buyer-map">
+        <article>
+          <span className="context public">B2C</span>
+          <h3>Empresário individual</h3>
+          <p>Google Contacts, agenda, telefone e LinkedIn revisado viram uma base privada para encontrar clientes, parceiros e prestadores.</p>
+        </article>
+        <article>
+          <span className="context group">B2B / B2B2C</span>
+          <h3>Hub, evento ou empresa</h3>
+          <p>CSV corporativo, Meetup, agenda do evento e OpenAPI alimentam grupos compartilhados, curadoria e grafo por comunidade.</p>
+        </article>
       </section>
 
       <section className="integration-map">
@@ -1762,12 +1943,25 @@ function shortGraphLabel(label: string) {
   return second ? `${first} ${second[0]}.` : `${label.slice(0, 16)}...`;
 }
 
+function formatCustomFieldKey(key: string) {
+  const labels: Record<string, string> = {
+    ticketMedio: "Ticket médio",
+    prioridade: "Prioridade",
+    area: "Área",
+    cargo: "Cargo",
+    tipoNegocio: "Tipo de negócio",
+    origemAgenda: "Origem da agenda",
+    eventoOrigem: "Evento de origem"
+  };
+  return labels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
+}
+
 function contactSignalLine(contact: Contact) {
   return unique([
     String(contact.customFields.cargo ?? ""),
     String(contact.customFields.area ?? ""),
     String(contact.customFields.tipoNegocio ?? ""),
-    contact.ddd ? `DDD ${contact.ddd}` : "",
+    formatDddLocation(contact.ddd),
     contact.source
   ]).join(" · ");
 }
@@ -2215,6 +2409,15 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
       body: "Login Google + People API para puxar nome, sobrenome, email, telefone e foto salvos pelo usuário.",
       action: "Preparar Google OAuth",
       data: ["nome", "email", "telefone", "foto", "DDD"]
+    },
+    {
+      name: "Google Calendar",
+      icon: CalendarClock,
+      status: "OAuth incremental",
+      tone: "attention",
+      body: "Calendar API para mapear reuniões, eventos e participantes autorizados, gerando contexto de origem e follow-up.",
+      action: "Preparar Agenda",
+      data: ["eventos", "participantes", "local", "recorrência", "follow-up"]
     },
     {
       name: "LinkedIn",

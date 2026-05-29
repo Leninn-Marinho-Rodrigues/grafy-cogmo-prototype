@@ -45,10 +45,10 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 | Landing/login | Entrada visual premium, animação de rede, sessão demonstrativa local e proposta do produto. |
 | Dashboard | Métricas da base, atalhos, oportunidades e visão geral do workspace. |
 | Contatos | CRUD inicial, tags, demandas, problema que resolve, links, grupos e status público/privado. |
-| Importação | CSV funcional, importação manual e base preparada para Google Contacts. |
-| Grafo | Nós de contatos, tags, DDDs, fontes, grupos, demandas e soluções; pan, zoom, filtros cumulativos e inspetor lateral. |
+| Importação | CSV funcional, importação manual e amostra Google Data Hub com Contacts + Agenda para validar o fluxo real. |
+| Grafo | Nós de contatos, tags, DDDs/localidade, fontes, grupos, demandas e soluções; pan, zoom, filtros cumulativos e inspetor lateral. |
 | Rede pública | Perfis opt-in, cards públicos, filtros e separação clara da base privada. |
-| Grupos | Board de pastas/grupos com tags, cores, contatos e impacto visual no grafo. |
+| Grupos | Board de pastas/grupos com tags, cores, contatos e impacto visual no grafo para hubs, eventos e empresas. |
 | Chat | Busca estruturada por tags, demanda, DDD, problema resolvido, cargo/área e duplicados, com cards ricos. |
 | Perfil | Perfil público editável, links sociais, sinais para grafo/chat/Rede e controle de visibilidade. |
 | PWA | Manifest, service worker, tela offline e estrutura para instalação mobile. |
@@ -87,6 +87,7 @@ flowchart LR
 
   Futuro["Próxima fase"] --> Supabase["Supabase Auth + Postgres + RLS"]
   Futuro --> Google["Google People API"]
+  Futuro --> Calendar["Google Calendar API"]
   Futuro --> IA["CopilotKit / AG-UI"]
   Futuro --> OpenAPI["OpenAPI / Swagger"]
 ```
@@ -100,7 +101,7 @@ Mais detalhes em [docs/guides/architecture.md](docs/guides/architecture.md).
 - **PWA:** manifest, service worker e página offline.
 - **Persistência atual:** localStorage para protótipo demonstrativo.
 - **Deploy:** GitHub Pages via GitHub Actions.
-- **Evolução recomendada:** Supabase Auth, Postgres com RLS, Google People API, OpenAPI/Swagger e copiloto com ferramentas confirmadas.
+- **Evolução recomendada:** Supabase Auth, Postgres com RLS, Google People API, Google Calendar API, OpenAPI/Swagger e copiloto com ferramentas confirmadas.
 
 ## Rodando localmente
 
@@ -158,7 +159,7 @@ Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides
 
 - O login atual é demonstrativo; autenticação real entra na fase Supabase/Google.
 - Dados de teste são persistidos no navegador de cada pessoa, não em um banco compartilhado.
-- Google Contacts, LinkedIn, Meetup, Instagram e X/Twitter aparecem como direção técnica e conectores preparados, não como coleta real em produção.
+- Google Contacts, Google Calendar, LinkedIn, Meetup, Instagram e X/Twitter aparecem como direção técnica e conectores preparados, não como coleta real em produção.
 - Enriquecimento externo deve ser feito com APIs oficiais, consentimento e revisão humana; o sistema não deve depender de scraping logado.
 
 ## Próximas fases
@@ -166,10 +167,12 @@ Use o link público e siga o roteiro em [docs/guides/demo-script.md](docs/guides
 1. Ligar Supabase Auth, Postgres, Storage e Row Level Security.
 2. Criar migrations para contatos, tags, grupos, campos customizados, perfis públicos, imports e chat.
 3. Implementar Google Contacts via backend seguro com OAuth e Google People API.
-4. Evoluir o grafo para uma engine especializada quando a base crescer.
-5. Adicionar OpenAPI/Swagger e webhooks para integrações.
-6. Integrar copiloto com ferramentas de leitura e escrita confirmada.
-7. Separar dados de demo, staging e produção.
+4. Implementar Google Agenda via Calendar API para eventos, participantes, origem e follow-up.
+5. Modelar tenants para hubs/eventos/empresas, com membros, imports em lote e permissões.
+6. Evoluir o grafo para uma engine especializada quando a base crescer.
+7. Adicionar OpenAPI/Swagger e webhooks para integrações.
+8. Integrar copiloto com ferramentas de leitura e escrita confirmada.
+9. Separar dados de demo, staging e produção.
 
 ## Documentação
 

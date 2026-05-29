@@ -23,10 +23,19 @@ flowchart TB
   Screens --> Public["Rede pública"]
   Screens --> Chat["Chat"]
   Screens --> Profile["Perfil"]
+  Screens --> Integrations["Conectores"]
 
   Graph --> GraphBuilder["buildGraph()"]
   Chat --> Search["searchContacts()"]
+  Integrations --> GoogleHub["Google Data Hub demo"]
 ```
+
+O protótipo agora demonstra a entrada de dados que o produto precisa ter em produção:
+
+- **B2C:** empresário/conector individual importa Google Contacts, CSV e agenda própria para achar clientes, fornecedores, parceiros e oportunidades.
+- **B2B/B2B2C:** hub, evento, empresa ou comunidade importa uma base de membros/participantes, cria grupos compartilhados e usa o grafo para curadoria de conexões.
+- **Google Data Hub:** a UI mostra o fluxo oficial esperado: login Google, contatos via People API, agenda via Calendar API, preview, deduplicação, enriquecimento por DDD e aprovação antes de gravar.
+- **Localidade por DDD:** telefones continuam gerando DDD; o DDD agora também aparece como localidade/região para filtro, grafo, detalhe do contato e chat.
 
 ## Mapa dos arquivos principais
 
@@ -94,6 +103,7 @@ flowchart LR
 
   SupabaseAuth --> RLS["Postgres + RLS"]
   Edge --> Google["Google People API"]
+  Edge --> Calendar["Google Calendar API"]
   Edge --> Meetup["Meetup GraphQL"]
   Edge --> AI["Copilot tools"]
 
@@ -111,6 +121,8 @@ flowchart LR
 - Storage para avatars.
 - Edge Functions para integrações que exigem tokens.
 - OpenAPI/Swagger para parceiros e automações futuras.
+- OAuth incremental: pedir primeiro identidade/login, depois escopo de contatos, depois escopo de agenda quando o usuário acionar essa função.
+- Tokens OAuth e refresh tokens ficam em backend/secret vault, nunca em `localStorage`.
 
 ### Banco
 
@@ -132,14 +144,29 @@ Entidades recomendadas:
 - `import_jobs`
 - `chat_threads`
 - `chat_messages`
+- `google_connections`
+- `calendar_events`
+- `calendar_event_attendees`
+- `tenant_accounts`
+- `tenant_members`
+- `tenant_import_batches`
 
 ### Integrações
 
-- **Google Contacts:** via Google People API, com OAuth e backend seguro.
+- **Google Contacts:** via Google People API, com OAuth, `people.connections.list`, `personFields` mínimos, preview e deduplicação antes de salvar.
+- **Google Calendar:** via Calendar API, com `events.list` para eventos autorizados, participantes, origem do encontro, local e follow-up.
 - **LinkedIn:** usar APIs oficiais aprovadas e/ou pesquisa assistida com revisão humana. Não depender de scraping logado.
 - **Meetup:** usar GraphQL/OAuth quando houver token e permissões.
 - **Instagram/X:** tratar como conectores futuros de APIs oficiais; não importar rede privada sem consentimento.
 - **IA:** CopilotKit/AG-UI com tools de leitura primeiro; escrita somente com confirmação.
+
+### Modelo B2C e B2B
+
+Para produção, a arquitetura deve separar `users` de `tenant_accounts`:
+
+- Usuário B2C possui contatos privados, perfil público opcional, integrações pessoais e grafo privado.
+- Hub/evento/empresa possui um tenant, admins, membros, grupos, campos customizados, imports em lote e grafo compartilhado.
+- Um mesmo contato pode existir como privado, público e/ou membro de tenant, mas cada vínculo precisa ter permissões e origem rastreáveis.
 
 ## Segurança e privacidade
 

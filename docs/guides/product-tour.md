@@ -20,6 +20,7 @@ Pontos para comentar:
 - A experiência foi pensada para desktop e Android.
 - O login real com Google/Supabase está planejado para a próxima fase.
 - O modo atual permite testar sem conta real.
+- A proposta agora deixa claros dois usos: empresário individual e hub/evento/empresa.
 
 ## 2. Dashboard
 
@@ -34,6 +35,7 @@ O que observar:
 - Duplicados sugeridos.
 - Demandas e oportunidades recentes.
 - Acesso rápido a importação, grafo e chat.
+- Blocos de decisão para explicar B2C versus B2B/B2B2C.
 
 ## 3. Grafo de networking
 
@@ -90,12 +92,15 @@ O perfil concentra informações que viram sinais úteis para rede, busca e graf
 Em **Ajustes**, o protótipo organiza conectores por status e deixa claro o caminho seguro:
 
 - Google Contacts via OAuth e People API.
+- Google Agenda via OAuth incremental e Calendar API.
 - LinkedIn oficial ou enriquecimento assistido com revisão humana.
 - Meetup GraphQL como integração futura para eventos e comunidades.
 - Instagram e X/Twitter apenas como placeholders de APIs oficiais.
 - CSV/OpenAPI como caminho de importação e integração corporativa.
 
 O produto não promete scraping logado: toda integração real precisa de OAuth, preview, revisão de duplicados e aprovação antes de gravar.
+
+Na tela de **Importar**, o bloco **Google Data Hub** permite importar uma amostra demonstrativa de Contacts + Agenda. Ela adiciona contatos de calendário, participantes de eventos, DDD/localidade e contexto de origem para validar o comportamento no grafo sem fingir integração real.
 
 Campos importantes:
 

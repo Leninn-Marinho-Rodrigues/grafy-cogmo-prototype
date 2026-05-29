@@ -885,6 +885,41 @@ label {
   gap: 16px;
 }
 
+.customer-paths,
+.buyer-map,
+.customer-mode-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.customer-path-card,
+.buyer-map article,
+.customer-mode-panel article {
+  border: 1px solid rgba(88, 166, 255, 0.17);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(96, 242, 213, 0.12), transparent 34%),
+    rgba(13, 17, 23, 0.74);
+  padding: 22px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.18);
+}
+
+.customer-path-card h3,
+.buyer-map h3,
+.customer-mode-panel h3 {
+  margin: 12px 0 8px;
+  font-size: 24px;
+  line-height: 1.12;
+}
+
+.customer-path-card p,
+.buyer-map p,
+.customer-mode-panel p {
+  color: var(--muted);
+  line-height: 1.58;
+}
+
 .landing-feature-card {
   display: grid;
   gap: 14px;
@@ -1226,6 +1261,25 @@ label {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-top: 18px;
+}
+
+.customer-mode-panel {
+  margin-top: 18px;
+}
+
+.customer-mode-panel article {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.customer-mode-panel p {
+  margin: 0;
+}
+
+.customer-mode-panel .secondary-button {
+  justify-self: start;
+  margin-top: 4px;
 }
 
 .onboarding-strip button {
@@ -1683,6 +1737,30 @@ label {
   gap: 10px;
 }
 
+.custom-field-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.notes-card {
+  border: 1px solid rgba(255, 209, 102, 0.22);
+  border-radius: var(--radius);
+  background: rgba(255, 209, 102, 0.075);
+  padding: 12px;
+}
+
+.notes-card strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.notes-card p {
+  margin: 0;
+  color: #dbe9f5;
+  line-height: 1.55;
+}
+
 .info-card {
   align-items: flex-start;
 }
@@ -1770,6 +1848,90 @@ label {
   position: absolute;
   top: 16px;
   right: 16px;
+}
+
+.google-data-hub {
+  grid-column: 1 / -1;
+}
+
+.google-source-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.google-source-flow div {
+  border: 1px solid rgba(102, 231, 255, 0.13);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.055);
+  padding: 10px;
+}
+
+.google-source-flow span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(102, 231, 255, 0.14);
+  color: var(--cyan);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.google-source-flow strong,
+.google-source-flow small {
+  display: block;
+}
+
+.google-source-flow strong {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.google-source-flow small {
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.google-preview-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.google-preview-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.052);
+  padding: 10px;
+}
+
+.google-preview-row strong,
+.google-preview-row small {
+  display: block;
+}
+
+.google-preview-row small {
+  color: var(--muted);
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.google-preview-row em {
+  border: 1px solid rgba(96, 242, 213, 0.26);
+  border-radius: 999px;
+  color: #c8fff1;
+  background: rgba(96, 242, 213, 0.09);
+  padding: 5px 8px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
 }
 
 .linkedin-research {
@@ -1864,6 +2026,12 @@ label {
     radial-gradient(circle at 20% 20%, rgba(102, 231, 255, 0.12), transparent 32%),
     rgba(255, 255, 255, 0.045);
   padding: 18px;
+}
+
+.buyer-map article {
+  background:
+    linear-gradient(135deg, rgba(88, 166, 255, 0.08), rgba(63, 185, 80, 0.045)),
+    rgba(255, 255, 255, 0.045);
 }
 
 .integration-map h3 {
@@ -3099,7 +3267,12 @@ label {
   }
 
   .auth-value-grid,
-  .onboarding-strip {
+  .onboarding-strip,
+  .customer-paths,
+  .buyer-map,
+  .customer-mode-panel,
+  .google-preview-list,
+  .custom-field-grid {
     grid-template-columns: 1fr;
   }
 
@@ -3163,6 +3336,7 @@ label {
   }
 
   .integration-roadmap,
+  .google-source-flow,
   .rich-results {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3274,6 +3448,7 @@ label {
 
   .integration-roadmap,
   .connector-lane div,
+  .google-source-flow,
   .rich-results,
   .connector-settings-grid {
     grid-template-columns: 1fr;

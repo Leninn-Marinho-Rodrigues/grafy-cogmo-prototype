@@ -2,6 +2,8 @@
 
 Esta pasta organiza materiais de produto, arquitetura, pesquisa e validação do protótipo.
 
+Atualização desta fase: o protótipo passou a demonstrar o fluxo Google Data Hub, separando Google Contacts, Google Agenda, DDD/localidade e os dois públicos do produto: empresário individual e hub/evento/empresa.
+
 ## Guias principais
 
 - [Tour do produto](guides/product-tour.md)

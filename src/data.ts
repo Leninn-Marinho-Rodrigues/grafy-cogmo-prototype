@@ -323,6 +323,123 @@ export const seedGroups: Group[] = [
   }
 ];
 
+export type GooglePreviewContactTemplate = Omit<Contact, "id" | "createdAt" | "updatedAt">;
+
+export const googlePreviewContactTemplates: GooglePreviewContactTemplate[] = [
+  {
+    name: "Marcos Vieira",
+    headline: "Diretor financeiro em grupo varejista",
+    description: "Apareceu em reuniões recorrentes da agenda e tem contexto forte para conversas de eficiência financeira.",
+    tags: ["finanças", "CFO", "diretor", "decisor", "varejo", "B2B", "São Paulo"],
+    phones: ["11944443333"],
+    emails: ["marcos.vieira@varejoplus.com.br"],
+    ddd: "11",
+    source: "Google Calendar",
+    currentDemand: "Busca reduzir custos operacionais e encontrar fornecedores confiáveis para expansão regional.",
+    problemSolves: "Traz visão de orçamento, governança e decisão de compra em empresas com múltiplas unidades.",
+    notes: "Amostra de agenda: reunião 'Eficiência financeira para PMEs' com 4 participantes. Importar real exige Calendar API e consentimento.",
+    links: [{ kind: "linkedin", value: "marcosvieira-cfo" }],
+    isPublic: false,
+    groupIds: ["grp_empresarios"],
+    customFields: {
+      ticketMedio: "enterprise",
+      prioridade: "alta",
+      area: "finanças",
+      cargo: "Diretor",
+      tipoNegocio: "Varejo B2B",
+      origemAgenda: "Google Calendar",
+      eventoOrigem: "Eficiência financeira para PMEs"
+    },
+    lastInteractionAt: "2026-05-26",
+    nextFollowUpAt: "2026-06-04"
+  },
+  {
+    name: "Camila Rocha",
+    headline: "Gestora de hub de inovação e eventos",
+    description: "Organiza rodadas de networking, comunidades de empreendedores e encontros com patrocinadores.",
+    tags: ["eventos", "hub", "comunidade", "parcerias", "marketing", "Nordeste", "B2B"],
+    phones: ["85991234567"],
+    emails: ["camila@hubnordeste.co"],
+    ddd: "85",
+    source: "Google Calendar",
+    currentDemand: "Quer uma solução para conectar participantes antes, durante e depois dos eventos.",
+    problemSolves: "Ajuda empresas e hubs a criar agenda de networking, curadoria de conexões e follow-up pós-evento.",
+    notes: "Amostra de agenda: participante frequente em eventos e calls de comunidade. Bom exemplo do cliente B2B/B2B2C.",
+    links: [
+      { kind: "linkedin", value: "camilarocha-hub" },
+      { kind: "url", value: "https://hubnordeste.co" }
+    ],
+    isPublic: true,
+    linkedUserId: "usr_camila",
+    groupIds: ["grp_eventos"],
+    customFields: {
+      ticketMedio: "enterprise",
+      prioridade: "alta",
+      area: "eventos",
+      cargo: "Gestora",
+      tipoNegocio: "Hub de networking",
+      origemAgenda: "Google Calendar",
+      eventoOrigem: "Rodada de negócios e inovação"
+    },
+    lastInteractionAt: "2026-05-24",
+    nextFollowUpAt: "2026-06-05"
+  },
+  {
+    name: "Felipe Azevedo",
+    headline: "Fornecedor de automação comercial",
+    description: "Contato salvo no Google Contacts com telefone, email e sinais comerciais úteis para PMEs.",
+    tags: ["fornecedores", "automação", "operações", "vendas", "PME", "Rio de Janeiro", "B2B"],
+    phones: ["21995556677"],
+    emails: ["felipe@azautomacao.com"],
+    ddd: "21",
+    source: "Google Contacts",
+    currentDemand: "Procura canais com empresários e consultores que atendem comércio local.",
+    problemSolves: "Automatiza processos comerciais, estoque, atendimento e relatórios de venda para PMEs.",
+    notes: "Amostra de People API: contato salvo com telefone e email. O Grafy derivou DDD e localidade para o grafo.",
+    links: [{ kind: "whatsapp", value: "21995556677" }],
+    isPublic: false,
+    groupIds: ["grp_empresarios"],
+    customFields: {
+      ticketMedio: "médio",
+      prioridade: "média",
+      area: "operações",
+      cargo: "Fornecedor",
+      tipoNegocio: "Serviços B2B",
+      origemAgenda: "Google Contacts"
+    },
+    lastInteractionAt: "2026-05-21",
+    nextFollowUpAt: "2026-06-09"
+  },
+  {
+    name: "Renata Almeida",
+    headline: "Head de comunidade em associação empresarial",
+    description: "Contato qualificado por eventos recorrentes, grupos e interesses em conexões entre associados.",
+    tags: ["comunidade", "eventos", "parcerias", "gestão", "B2B", "Belo Horizonte", "decisor"],
+    phones: ["31993332211"],
+    emails: ["renata@associabh.com.br"],
+    ddd: "31",
+    source: "Google Calendar",
+    currentDemand: "Busca mapear interesses dos associados para sugerir reuniões e parcerias comerciais.",
+    problemSolves: "Faz curadoria de relacionamento, agenda encontros e mede engajamento de membros.",
+    notes: "Amostra de Calendar API: recorrência em eventos de associação. Ideal para demonstrar o comprador hub/empresa.",
+    links: [{ kind: "linkedin", value: "renataalmeida-comunidade" }],
+    isPublic: true,
+    linkedUserId: "usr_renata",
+    groupIds: ["grp_eventos", "grp_empresarios"],
+    customFields: {
+      ticketMedio: "enterprise",
+      prioridade: "alta",
+      area: "comunidade",
+      cargo: "Head",
+      tipoNegocio: "Associação empresarial",
+      origemAgenda: "Google Calendar",
+      eventoOrigem: "Encontro mensal de associados"
+    },
+    lastInteractionAt: "2026-05-23",
+    nextFollowUpAt: "2026-06-06"
+  }
+];
+
 export const seedCustomFields: CustomField[] = [
   {
     id: "cf_priority",
@@ -341,11 +458,30 @@ export const seedCustomFields: CustomField[] = [
     type: "select",
     options: ["baixo", "médio", "enterprise", "seed"],
     isFilterable: true
+  },
+  {
+    id: "cf_origin",
+    scope: "user",
+    name: "Origem da agenda",
+    key: "origemAgenda",
+    type: "short_text",
+    options: [],
+    isFilterable: true
+  },
+  {
+    id: "cf_event",
+    scope: "group",
+    groupId: "grp_eventos",
+    name: "Evento de origem",
+    key: "eventoOrigem",
+    type: "short_text",
+    options: [],
+    isFilterable: true
   }
 ];
 
 export const initialState: GrafyState = {
-  schemaVersion: "ux-neural-2026-05-28-checklist",
+  schemaVersion: "google-data-hub-2026-05-29",
   profile: {
     id: "usr_lenin",
     name: "Leninn Rodrigues",

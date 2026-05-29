@@ -18,6 +18,84 @@ export const extractDdd = (phone: string) => {
   return "";
 };
 
+export const dddLocationMap: Record<string, { label: string; state: string; region: string }> = {
+  "11": { label: "São Paulo/SP", state: "SP", region: "Sudeste" },
+  "12": { label: "Vale do Paraíba/SP", state: "SP", region: "Sudeste" },
+  "13": { label: "Baixada Santista/SP", state: "SP", region: "Sudeste" },
+  "14": { label: "Bauru/SP", state: "SP", region: "Sudeste" },
+  "15": { label: "Sorocaba/SP", state: "SP", region: "Sudeste" },
+  "16": { label: "Ribeirão Preto/SP", state: "SP", region: "Sudeste" },
+  "17": { label: "São José do Rio Preto/SP", state: "SP", region: "Sudeste" },
+  "18": { label: "Presidente Prudente/SP", state: "SP", region: "Sudeste" },
+  "19": { label: "Campinas/SP", state: "SP", region: "Sudeste" },
+  "21": { label: "Rio de Janeiro/RJ", state: "RJ", region: "Sudeste" },
+  "22": { label: "Norte Fluminense/RJ", state: "RJ", region: "Sudeste" },
+  "24": { label: "Sul Fluminense/RJ", state: "RJ", region: "Sudeste" },
+  "27": { label: "Vitória/ES", state: "ES", region: "Sudeste" },
+  "28": { label: "Sul do Espírito Santo/ES", state: "ES", region: "Sudeste" },
+  "31": { label: "Belo Horizonte/MG", state: "MG", region: "Sudeste" },
+  "32": { label: "Zona da Mata/MG", state: "MG", region: "Sudeste" },
+  "33": { label: "Leste de Minas/MG", state: "MG", region: "Sudeste" },
+  "34": { label: "Triângulo Mineiro/MG", state: "MG", region: "Sudeste" },
+  "35": { label: "Sul de Minas/MG", state: "MG", region: "Sudeste" },
+  "37": { label: "Centro-Oeste de Minas/MG", state: "MG", region: "Sudeste" },
+  "38": { label: "Norte de Minas/MG", state: "MG", region: "Sudeste" },
+  "41": { label: "Curitiba/PR", state: "PR", region: "Sul" },
+  "42": { label: "Ponta Grossa/PR", state: "PR", region: "Sul" },
+  "43": { label: "Londrina/PR", state: "PR", region: "Sul" },
+  "44": { label: "Maringá/PR", state: "PR", region: "Sul" },
+  "45": { label: "Foz do Iguaçu/PR", state: "PR", region: "Sul" },
+  "46": { label: "Pato Branco/PR", state: "PR", region: "Sul" },
+  "47": { label: "Joinville/SC", state: "SC", region: "Sul" },
+  "48": { label: "Florianópolis/SC", state: "SC", region: "Sul" },
+  "49": { label: "Oeste Catarinense/SC", state: "SC", region: "Sul" },
+  "51": { label: "Porto Alegre/RS", state: "RS", region: "Sul" },
+  "53": { label: "Pelotas/RS", state: "RS", region: "Sul" },
+  "54": { label: "Caxias do Sul/RS", state: "RS", region: "Sul" },
+  "55": { label: "Santa Maria/RS", state: "RS", region: "Sul" },
+  "61": { label: "Brasília/DF", state: "DF", region: "Centro-Oeste" },
+  "62": { label: "Goiânia/GO", state: "GO", region: "Centro-Oeste" },
+  "63": { label: "Tocantins/TO", state: "TO", region: "Norte" },
+  "64": { label: "Rio Verde/GO", state: "GO", region: "Centro-Oeste" },
+  "65": { label: "Cuiabá/MT", state: "MT", region: "Centro-Oeste" },
+  "66": { label: "Norte de Mato Grosso/MT", state: "MT", region: "Centro-Oeste" },
+  "67": { label: "Campo Grande/MS", state: "MS", region: "Centro-Oeste" },
+  "68": { label: "Acre/AC", state: "AC", region: "Norte" },
+  "69": { label: "Rondônia/RO", state: "RO", region: "Norte" },
+  "71": { label: "Salvador/BA", state: "BA", region: "Nordeste" },
+  "73": { label: "Sul da Bahia/BA", state: "BA", region: "Nordeste" },
+  "74": { label: "Juazeiro/BA", state: "BA", region: "Nordeste" },
+  "75": { label: "Feira de Santana/BA", state: "BA", region: "Nordeste" },
+  "77": { label: "Vitória da Conquista/BA", state: "BA", region: "Nordeste" },
+  "79": { label: "Sergipe/SE", state: "SE", region: "Nordeste" },
+  "81": { label: "Recife/PE", state: "PE", region: "Nordeste" },
+  "82": { label: "Maceió/AL", state: "AL", region: "Nordeste" },
+  "83": { label: "Paraíba/PB", state: "PB", region: "Nordeste" },
+  "84": { label: "Rio Grande do Norte/RN", state: "RN", region: "Nordeste" },
+  "85": { label: "Fortaleza/CE", state: "CE", region: "Nordeste" },
+  "86": { label: "Teresina/PI", state: "PI", region: "Nordeste" },
+  "87": { label: "Interior de Pernambuco/PE", state: "PE", region: "Nordeste" },
+  "88": { label: "Interior do Ceará/CE", state: "CE", region: "Nordeste" },
+  "89": { label: "Sul do Piauí/PI", state: "PI", region: "Nordeste" },
+  "91": { label: "Belém/PA", state: "PA", region: "Norte" },
+  "92": { label: "Manaus/AM", state: "AM", region: "Norte" },
+  "93": { label: "Santarém/PA", state: "PA", region: "Norte" },
+  "94": { label: "Marabá/PA", state: "PA", region: "Norte" },
+  "95": { label: "Roraima/RR", state: "RR", region: "Norte" },
+  "96": { label: "Amapá/AP", state: "AP", region: "Norte" },
+  "97": { label: "Interior do Amazonas/AM", state: "AM", region: "Norte" },
+  "98": { label: "São Luís/MA", state: "MA", region: "Nordeste" },
+  "99": { label: "Interior do Maranhão/MA", state: "MA", region: "Nordeste" }
+};
+
+export const getDddLocation = (ddd?: string) => ddd ? dddLocationMap[ddd] ?? null : null;
+
+export const formatDddLocation = (ddd?: string) => {
+  if (!ddd) return "DDD não calculado";
+  const location = getDddLocation(ddd);
+  return location ? `DDD ${ddd} · ${location.label}` : `DDD ${ddd}`;
+};
+
 export const unique = <T,>(items: T[]) => Array.from(new Set(items.filter(Boolean)));
 
 export const splitList = (value: string) =>
@@ -54,6 +132,8 @@ export const contactHaystack = (contact: Contact) =>
       contact.problemSolves,
       contact.notes,
       contact.ddd,
+      formatDddLocation(contact.ddd),
+      getDddLocation(contact.ddd)?.region ?? "",
       contact.source,
       contact.emails.join(" "),
       contact.phones.join(" "),
@@ -141,12 +221,15 @@ const customFieldText = (contact: Contact, key: string) => {
 
 export const getContactTaxonomyTags = (contact: Contact, groups: GrafyState["groups"] = []) => {
   const contactGroups = groups.filter((group) => contact.groupIds.includes(group.id));
+  const dddLocation = getDddLocation(contact.ddd);
   return unique([
     ...contact.tags,
     customFieldText(contact, "area"),
     customFieldText(contact, "cargo"),
     customFieldText(contact, "tipoNegocio"),
     contact.ddd ? `DDD ${contact.ddd}` : "",
+    dddLocation?.label ?? "",
+    dddLocation?.region ?? "",
     contact.source,
     ...contactGroups.flatMap((group) => [group.name, ...group.tags])
   ]).filter(Boolean);
@@ -157,8 +240,8 @@ export const graphFilterGroups = [
   { label: "Áreas", tags: ["marketing", "vendas", "finanças", "financeiro", "investimentos", "tecnologia", "produto", "jurídico", "operações", "eventos", "segurança", "RH", "customer success", "construção"] },
   { label: "Negócios", tags: ["B2B", "SaaS", "PME", "startups", "consultoria", "serviços B2B", "serviços locais", "fornecedores", "comunidade", "healthtech", "scale-up", "SaaS vertical", "Venture"] },
   { label: "Estratégia", tags: ["parcerias", "fundraising", "investimento", "contratos recorrentes", "growth", "compliance", "expansão", "recrutamento", "limpeza", "governança"] },
-  { label: "Fontes", tags: ["Google Contacts", "CSV", "Manual", "Rede Pública"] },
-  { label: "Localidade", tags: ["DDD 11", "DDD 21", "DDD 31", "DDD 41", "DDD 61", "DDD 81"] },
+  { label: "Fontes", tags: ["Google Contacts", "Google Calendar", "CSV", "Manual", "Rede Pública"] },
+  { label: "Localidade", tags: ["DDD 11", "DDD 21", "DDD 31", "DDD 41", "DDD 61", "DDD 81", "DDD 85", "São Paulo/SP", "Rio de Janeiro/RJ", "Belo Horizonte/MG", "Curitiba/PR", "Brasília/DF", "Recife/PE", "Fortaleza/CE", "Sudeste", "Nordeste", "Sul"] },
   { label: "Pastas", tags: ["Founders e Investidores", "Networking de Eventos", "Empresários Regionais", "decisores"] }
 ];
 
@@ -389,11 +472,11 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
       weight: 12 + contact.tags.length * 2,
       color: contact.isPublic ? nodeColorByType.public : nodeColorByType.contact,
       isDimmed: hasFocus && !matchedContactIds.has(contact.id),
-      meta: unique([contact.headline || contact.source, area, cargo, contact.ddd ? `DDD ${contact.ddd}` : ""]).join(" · ")
+      meta: unique([contact.headline || contact.source, area, cargo, formatDddLocation(contact.ddd)]).join(" · ")
     });
   });
 
-  const sourceTags = new Set(["Manual", "CSV", "Google Contacts", "Rede Pública", "Grupo"]);
+  const sourceTags = new Set(["Manual", "CSV", "Google Contacts", "Google Calendar", "Rede Pública", "Grupo"]);
   const tags = getGraphFilterTags(contacts, state.groups)
     .filter((tag) => !tag.startsWith("DDD ") && !sourceTags.has(tag))
     .slice(0, 24);
@@ -509,7 +592,8 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
       y: 90 + index * 70,
       weight: 7,
       color: nodeColorByType.ddd,
-      isDimmed: hasFocus && !contacts.some((contact) => contact.ddd === ddd && matchedContactIds.has(contact.id))
+      isDimmed: hasFocus && !contacts.some((contact) => contact.ddd === ddd && matchedContactIds.has(contact.id)),
+      meta: formatDddLocation(ddd)
     });
     contacts
       .filter((contact) => contact.ddd === ddd)
@@ -637,7 +721,9 @@ export const makeAssistantAnswer = (prompt: string, state: GrafyState) => {
     const ddd = dddMatch[1];
     const contacts = state.contacts.filter((contact) => contact.ddd === ddd);
     return {
-      content: contacts.length ? `Encontrei ${contacts.length} contato(s) com DDD ${ddd}.` : `Não encontrei contatos com DDD ${ddd}.`,
+      content: contacts.length
+        ? `Encontrei ${contacts.length} contato(s) em ${formatDddLocation(ddd)}.`
+        : `Não encontrei contatos em ${formatDddLocation(ddd)}.`,
       resultContactIds: contacts.map((contact) => contact.id)
     };
   }
