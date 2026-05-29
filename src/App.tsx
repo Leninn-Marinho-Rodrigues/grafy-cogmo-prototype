@@ -102,6 +102,7 @@ type SignupLandingMode = "signupPersonal" | "signupHub";
 type LandingMode = "choice" | AudienceMode | SignupLandingMode;
 type AuthMode = "signup" | "login";
 type AccountType = "personal" | "company";
+type ProviderSetupTarget = "google" | "apple";
 type AuthLoginHandler = (email: string, importedContacts?: Contact[], targetView?: ViewKey) => void;
 type FirebaseRuntimeConfig = {
   apiKey: string;
@@ -522,6 +523,29 @@ const contactFromImportedPartial = (
     createdAt: now,
     updatedAt: now
   };
+};
+
+const buildPrototypeNetworkContacts = (provider: ProviderSetupTarget, audienceMode: AudienceMode): Contact[] => {
+  const now = new Date().toISOString();
+  const providerLabel = provider === "google" ? "Google" : "Apple";
+  const scopeLabel = audienceMode === "hub" ? "Hub/evento" : "Empresário";
+  return seedContacts.slice(0, audienceMode === "hub" ? 9 : 12).map((contact) => ({
+    ...contact,
+    id: uid("demo"),
+    tags: unique(["demonstração Grafy", "base exemplo", providerLabel, scopeLabel, ...contact.tags]),
+    notes: unique([
+      contact.notes,
+      `Amostra de demonstração criada porque o login real de ${providerLabel} ainda não está conectado nesta publicação.`
+    ]).join(" "),
+    customFields: {
+      ...contact.customFields,
+      modoPrototipo: "Demonstração",
+      conectorOrigem: providerLabel,
+      publicoAlvo: scopeLabel
+    },
+    createdAt: now,
+    updatedAt: now
+  }));
 };
 
 const readFileAsText = (file: File) =>
@@ -1336,6 +1360,8 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
   const [cnpj, setCnpj] = useState("");
   const [companyCep, setCompanyCep] = useState("");
   const [status, setStatus] = useState("");
+  const [providerFallback, setProviderFallback] = useState<ProviderSetupTarget | null>(null);
+  const [providerGuideOpen, setProviderGuideOpen] = useState(false);
   const [googleImporting, setGoogleImporting] = useState(false);
   const [appleIdentityImporting, setAppleIdentityImporting] = useState(false);
   const [appleVcardText, setAppleVcardText] = useState("");
@@ -1438,6 +1464,15 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
+
+  useEffect(() => {
+    if (!providerFallback) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProviderFallback(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [providerFallback]);
 
   useEffect(() => {
     if (audienceMode === "hub") setAccountType("company");
@@ -1570,9 +1605,36 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
     setStatus("LinkedIn vinculado como sinal de perfil. Importar conexões do LinkedIn exige permissão oficial da plataforma.");
   };
 
+  const openProviderFallback = (provider: ProviderSetupTarget, showGuide = false) => {
+    setProviderGuideOpen(showGuide);
+    setProviderFallback(provider);
+    setStatus(
+      provider === "google"
+        ? "Google respondeu ao clique, mas este deploy ainda não recebeu a conexão oficial. Você pode testar o Grafy em modo protótipo agora."
+        : "Apple respondeu ao clique, mas este deploy ainda não recebeu a conexão oficial. Você pode testar o Grafy em modo protótipo agora."
+    );
+  };
+
+  const enterPrototypeMode = (provider: ProviderSetupTarget) => {
+    const contacts = buildPrototypeNetworkContacts(provider, audienceMode);
+    const sessionEmail =
+      email ||
+      (provider === "google"
+        ? audienceMode === "hub"
+          ? "admin-google-demo@grafy.local"
+          : "usuario-google-demo@grafy.local"
+        : audienceMode === "hub"
+          ? "admin-apple-demo@grafy.local"
+          : "usuario-apple-demo@grafy.local");
+    if (provider === "google") setGoogleConnected(true);
+    else setAppleConnected(true);
+    setProviderFallback(null);
+    onLogin(sessionEmail, contacts, audienceMode === "hub" ? "groups" : "dashboard");
+  };
+
   const handleGoogleLogin = async () => {
     if (!googleClientConfigured) {
-      setStatus("Google ainda não está ativado nesta publicação. Em produção, este botão abre a tela do Google direto; a credencial do app é configurada uma única vez pelo time do Grafy.");
+      openProviderFallback("google");
       return;
     }
     setGoogleImporting(true);
@@ -1588,6 +1650,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
       onLogin(sessionEmail, googleImport.contacts, "dashboard");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Não foi possível iniciar OAuth Google.");
+      openProviderFallback("google", true);
       setGoogleImporting(false);
     }
   };
@@ -1604,7 +1667,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 
   const handleAppleIdentityLogin = async () => {
     if (!appleClientConfigured) {
-      setStatus("Apple ainda não está ativado nesta publicação. Em produção, este botão abre o Sign in with Apple direto; contatos Apple no web entram por .vcf/.ics autorizados pelo usuário.");
+      openProviderFallback("apple");
       return;
     }
     setAppleIdentityImporting(true);
@@ -1640,6 +1703,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
       setStatus("Apple ID vinculado. No web, carregue .vcf/.ics para trazer contatos reais; acesso direto ao iCloud Contacts exige app nativo.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Não foi possível vincular Apple ID.");
+      openProviderFallback("apple", true);
     } finally {
       setAppleIdentityImporting(false);
     }
@@ -1693,6 +1757,22 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
     }
     onLogin(email || "hub@grafy.local", contacts, "groups");
   };
+
+  const providerFallbackLabel = providerFallback === "apple" ? "Apple" : "Google";
+  const providerFallbackCopy =
+    providerFallback === "apple"
+      ? {
+          title: "Apple ID está pronto para entrar no fluxo",
+          body:
+            "Nesta publicação o provedor Apple ainda não foi conectado ao projeto. No produto final, o usuário clica aqui, escolhe a conta Apple e o Grafy usa a identidade autorizada sem pedir configuração técnica.",
+          permission: "Identidade Apple e email autorizado. Contatos Apple no web entram por vCard/.ics; acesso direto ao iCloud Contacts pede app nativo."
+        }
+      : {
+          title: "Google respondeu ao clique",
+          body:
+            "O app já tem o fluxo de Google preparado. Esta publicação só precisa receber a configuração oficial do Firebase ou Google OAuth para abrir o popup real como Epic, Google e outros apps fazem.",
+          permission: "Conta Google, perfil, Google Contacts e Agenda autorizados pelo usuário."
+        };
 
   return (
     <div className={`auth-page auth-page-${landingMode}`}>
@@ -2116,6 +2196,61 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
             onLogin={() => changeLandingMode(audienceMode === "personal" ? "signupPersonal" : "signupHub")}
           />}
         </>
+      )}
+      {providerFallback && (
+        <div
+          className="provider-fallback-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="provider-fallback-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setProviderFallback(null);
+          }}
+        >
+          <motion.div
+            className="provider-fallback-dialog"
+            initial={{ opacity: 0, y: 18, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+          >
+            <button className="provider-fallback-close" type="button" onClick={() => setProviderFallback(null)} aria-label="Fechar">
+              <X size={18} />
+            </button>
+            <div className="provider-fallback-icon">
+              {providerFallback === "google" ? <span className="provider-logo google">G</span> : <span className="provider-logo apple"><UserRound size={18} /></span>}
+            </div>
+            <div className="provider-fallback-copy">
+              <span className="provider-fallback-eyebrow">{providerFallbackLabel}</span>
+              <h2 id="provider-fallback-title">{providerFallbackCopy.title}</h2>
+              <p>{providerFallbackCopy.body}</p>
+            </div>
+            <div className="provider-fallback-permission">
+              <ShieldCheck size={18} />
+              <span>{providerFallbackCopy.permission}</span>
+            </div>
+            <div className="provider-fallback-actions">
+              <button className="primary-button glow-button" type="button" onClick={() => enterPrototypeMode(providerFallback)}>
+                <Sparkles size={18} />
+                Entrar em modo protótipo
+              </button>
+              <button className="secondary-button" type="button" onClick={() => setProviderGuideOpen((value) => !value)}>
+                <Settings size={18} />
+                {providerGuideOpen ? "Ocultar ativação" : "Ver como ativar login real"}
+              </button>
+            </div>
+            {providerGuideOpen && (
+              <div className="provider-activation-guide">
+                <strong>Para o popup real funcionar nesta hospedagem</strong>
+                <ol>
+                  <li>Ativar Firebase Authentication e habilitar o provedor {providerFallbackLabel}.</li>
+                  <li>Autorizar o domínio desta publicação e qualquer novo domínio de teste.</li>
+                  <li>Salvar as chaves do app como segredos do build e publicar novamente.</li>
+                  <li>No Google, habilitar People API e Calendar API para importar contatos e agenda autorizados.</li>
+                </ol>
+              </div>
+            )}
+          </motion.div>
+        </div>
       )}
     </div>
   );
