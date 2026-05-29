@@ -1,7 +1,10 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
+  BadgeCheck,
   Bot,
+  BriefcaseBusiness,
+  Building2,
   CalendarClock,
   Check,
   ChevronRight,
@@ -9,7 +12,9 @@ import {
   ContactRound,
   Database,
   Eye,
+  EyeOff,
   Filter,
+  Fingerprint,
   Globe2,
   Home,
   Import,
@@ -18,6 +23,7 @@ import {
   Lock,
   LogOut,
   Mail,
+  MapPin,
   MessageSquare,
   Network,
   PanelLeft,
@@ -92,6 +98,8 @@ const mobileNavOrder: ViewKey[] = ["dashboard", "contacts", "graph", "import", "
 const groupColorOptions = ["#66e7ff", "#a993ff", "#ffd166", "#60f2d5", "#ff7aa8", "#31d17f"];
 type AudienceMode = "personal" | "hub";
 type LandingMode = "choice" | AudienceMode;
+type AuthMode = "signup" | "login";
+type AccountType = "personal" | "company";
 type AuthLoginHandler = (email: string, importedContacts?: Contact[], targetView?: ViewKey) => void;
 
 const getLandingModeFromHash = (): LandingMode => {
@@ -100,6 +108,64 @@ const getLandingModeFromHash = (): LandingMode => {
   if (hash.includes("empresarios")) return "personal";
   return "choice";
 };
+
+const digitsOnly = (value: string) => value.replace(/\D/g, "");
+
+const formatCep = (value: string) => {
+  const digits = digitsOnly(value).slice(0, 8);
+  if (digits.length <= 5) return digits;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+};
+
+const formatCnpj = (value: string) => {
+  const digits = digitsOnly(value).slice(0, 14);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`;
+  if (digits.length <= 8) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5)}`;
+  if (digits.length <= 12) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8)}`;
+  return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
+};
+
+const formatBrazilPhone = (value: string) => {
+  const digits = digitsOnly(value).slice(0, 13);
+  const localDigits = digits.startsWith("55") ? digits.slice(2) : digits;
+  if (localDigits.length <= 2) return localDigits ? `(${localDigits}` : "";
+  if (localDigits.length <= 6) return `(${localDigits.slice(0, 2)}) ${localDigits.slice(2)}`;
+  if (localDigits.length <= 10) return `(${localDigits.slice(0, 2)}) ${localDigits.slice(2, 6)}-${localDigits.slice(6)}`;
+  return `(${localDigits.slice(0, 2)}) ${localDigits.slice(2, 7)}-${localDigits.slice(7, 11)}`;
+};
+
+const cepFallbackRegions = [
+  { min: 1000000, max: 19999999, label: "faixa postal de São Paulo/SP" },
+  { min: 20000000, max: 28999999, label: "faixa postal do Rio de Janeiro/ES" },
+  { min: 30000000, max: 39999999, label: "faixa postal de Minas Gerais" },
+  { min: 40000000, max: 48999999, label: "faixa postal da Bahia/Sergipe" },
+  { min: 49000000, max: 59999999, label: "faixa postal do Nordeste" },
+  { min: 60000000, max: 63999999, label: "faixa postal do Ceará" },
+  { min: 64000000, max: 65999999, label: "faixa postal do Piauí/Maranhão" },
+  { min: 66000000, max: 68899999, label: "faixa postal do Pará/Amapá" },
+  { min: 69000000, max: 69999999, label: "faixa postal do Amazonas/Roraima/Acre" },
+  { min: 70000000, max: 76999999, label: "faixa postal do Centro-Oeste" },
+  { min: 77000000, max: 77999999, label: "faixa postal do Tocantins" },
+  { min: 78000000, max: 78899999, label: "faixa postal de Mato Grosso" },
+  { min: 79000000, max: 79999999, label: "faixa postal de Mato Grosso do Sul" },
+  { min: 80000000, max: 87999999, label: "faixa postal do Paraná" },
+  { min: 88000000, max: 89999999, label: "faixa postal de Santa Catarina" },
+  { min: 90000000, max: 99999999, label: "faixa postal do Rio Grande do Sul" }
+];
+
+const getCepFallbackLabel = (cep: string) => {
+  const value = Number(digitsOnly(cep));
+  const match = cepFallbackRegions.find((region) => value >= region.min && value <= region.max);
+  return match?.label ?? "";
+};
+
+const getPasswordChecks = (password: string, confirmPassword: string) => [
+  { label: "8 caracteres ou mais", valid: password.length >= 8 },
+  { label: "pelo menos 1 número", valid: /\d/.test(password) },
+  { label: "pelo menos 1 caractere especial", valid: /[^A-Za-z0-9]/.test(password) },
+  { label: "senhas iguais", valid: Boolean(password) && password === confirmPassword }
+];
 
 type GoogleTokenResponse = {
   access_token?: string;
@@ -899,6 +965,27 @@ function AppShell(props: AppShellProps) {
 
 function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
   const [email, setEmail] = useState("");
+  const [authMode, setAuthMode] = useState<AuthMode>("signup");
+  const [accountType, setAccountType] = useState<AccountType>("personal");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [cep, setCep] = useState("");
+  const [cepInsight, setCepInsight] = useState("");
+  const [cepLoading, setCepLoading] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [linkedinConnected, setLinkedinConnected] = useState(false);
+  const [googleConnected, setGoogleConnected] = useState(false);
+  const [appleConnected, setAppleConnected] = useState(false);
+  const [companyName, setCompanyName] = useState("");
+  const [companyRole, setCompanyRole] = useState("");
+  const [companySegment, setCompanySegment] = useState("");
+  const [companySize, setCompanySize] = useState("");
+  const [cnpj, setCnpj] = useState("");
+  const [companyCep, setCompanyCep] = useState("");
   const [status, setStatus] = useState("");
   const [googleImporting, setGoogleImporting] = useState(false);
   const [appleIdentityImporting, setAppleIdentityImporting] = useState(false);
@@ -976,12 +1063,60 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
   const audienceMode: AudienceMode = landingMode === "choice" ? "personal" : landingMode;
   const activeCopy = landingCopy[audienceMode];
   const SpecificLandingPage = audienceMode === "personal" ? PersonalLandingPage : HubLandingPage;
+  const passwordChecks = useMemo(() => getPasswordChecks(password, confirmPassword), [password, confirmPassword]);
+  const passwordIsValid = passwordChecks.every((item) => item.valid);
+  const phoneDdd = extractDdd(phone);
+  const phoneInsight = phoneDdd ? formatDddLocation(phoneDdd) : "Digite o telefone para calcular DDD, estado e região.";
+  const userCepFallback = cep.length >= 8 ? getCepFallbackLabel(cep) : "";
+  const hasIdentitySource = googleConnected || appleConnected || applePreviewCount > 0;
+  const companyFieldsReady = Boolean(companyName.trim() && companyRole.trim() && companySegment.trim());
+  const signupReady = Boolean(
+    fullName.trim().split(/\s+/).length >= 2 &&
+    /\S+@\S+\.\S+/.test(email) &&
+    phoneDdd &&
+    digitsOnly(cep).length === 8 &&
+    passwordIsValid &&
+    (accountType === "personal" || companyFieldsReady)
+  );
 
   useEffect(() => {
     const handleHashChange = () => setLandingMode(getLandingModeFromHash());
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, []);
+
+  useEffect(() => {
+    if (landingMode === "hub") setAccountType("company");
+  }, [landingMode]);
+
+  useEffect(() => {
+    const cepDigits = digitsOnly(cep);
+    if (cepDigits.length !== 8) {
+      setCepInsight("");
+      setCepLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setCepLoading(true);
+    fetch(`https://viacep.com.br/ws/${cepDigits}/json/`, { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("CEP indisponivel"))))
+      .then((data: { erro?: boolean; localidade?: string; uf?: string; bairro?: string }) => {
+        if (data.erro) {
+          setCepInsight(getCepFallbackLabel(cepDigits) || "CEP valido no formato, mas ainda sem cidade confirmada.");
+          return;
+        }
+        setCepInsight(
+          [data.localidade, data.uf].filter(Boolean).join("/") +
+            (data.bairro ? ` · ${data.bairro}` : "")
+        );
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setCepInsight(getCepFallbackLabel(cepDigits) || "CEP pronto para validação quando houver conexão.");
+      })
+      .finally(() => setCepLoading(false));
+    return () => controller.abort();
+  }, [cep]);
 
   const changeLandingMode = (mode: LandingMode) => {
     setLandingMode(mode);
@@ -990,7 +1125,35 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    setStatus("Conecte Google, importe Apple vCard/.ics ou carregue a base do hub para abrir o workspace com dados reais.");
+    if (authMode === "login") {
+      if (!/\S+@\S+\.\S+/.test(email) || !password) {
+        setStatus("Informe email e senha, ou entre direto por Google/Apple para reconstruir a rede com contatos reais.");
+        return;
+      }
+      setStatus("Login validado no protótipo. Para abrir o Grafy com valor real, conecte Google/Apple ou carregue uma base do hub.");
+      return;
+    }
+    if (!signupReady) {
+      setStatus("Revise nome completo, email, telefone, CEP, senha e os dados da empresa quando for conta empresarial.");
+      return;
+    }
+    if (!hasIdentitySource && audienceMode === "personal") {
+      setStatus("Conecte Google ou Apple antes de criar a conta. O Grafy precisa da agenda para construir sua rede de oportunidades.");
+      return;
+    }
+    if (audienceMode === "hub") {
+      handleHubWorkspaceLogin();
+      return;
+    }
+    if (applePreviewCount) {
+      handleAppleLogin();
+      return;
+    }
+    if (googleClientConfigured) {
+      void handleGoogleLogin();
+      return;
+    }
+    setStatus("Cadastro qualificado. Agora configure Google Client ID no deploy ou carregue Apple .vcf/.ics para importar contatos reais.");
   };
 
   const buildAppleOnboardingContacts = () => [
@@ -1030,6 +1193,20 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
       .catch((error) => setStatus(error instanceof Error ? error.message : `Falha ao ler ${label}.`));
   };
 
+  const handleLinkedinConnect = () => {
+    const value = linkedinUrl.trim();
+    if (!value) {
+      setStatus("Cole seu LinkedIn para usar como sinal de identidade profissional e enriquecimento do perfil.");
+      return;
+    }
+    if (!/linkedin\.com\/(in|company)\//i.test(value)) {
+      setStatus("Use uma URL do LinkedIn no formato linkedin.com/in/seu-perfil ou linkedin.com/company/sua-empresa.");
+      return;
+    }
+    setLinkedinConnected(true);
+    setStatus("LinkedIn vinculado como sinal de perfil. Importar conexões do LinkedIn exige permissão oficial da plataforma.");
+  };
+
   const handleGoogleLogin = async () => {
     if (!googleClientConfigured) {
       setStatus("Para importar contatos reais do Google, configure VITE_GOOGLE_CLIENT_ID no deploy e habilite People API + Calendar API no Google Cloud. Não vou criar contatos artificiais neste fluxo.");
@@ -1056,6 +1233,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
               setGoogleImporting(false);
               return;
             }
+            setGoogleConnected(true);
             onLogin(email || "usuario-google@grafy.local", contacts, "dashboard");
           } catch (error) {
             setStatus(error instanceof Error ? error.message : "Falha ao importar dados do Google.");
@@ -1085,6 +1263,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
       setStatus("Escolha um arquivo .vcf do Apple Contacts ou .ics da Apple Agenda antes de entrar importando.");
       return;
     }
+    setAppleConnected(true);
     onLogin(email || "usuario-apple@grafy.local", contacts, "dashboard");
   };
 
@@ -1105,6 +1284,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
       });
       const response = await window.AppleID?.auth?.signIn();
       if (response?.user?.email) setEmail(response.user.email);
+      setAppleConnected(true);
       setStatus("Apple ID vinculado. No web, agora carregue .vcf/.ics para trazer contatos reais; acesso direto ao iCloud Contacts exige app nativo.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Não foi possível vincular Apple ID.");
@@ -1244,7 +1424,299 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                 </div>
               </motion.div>
 
-              <form className="auth-card auth-ingestion-card" onSubmit={submit}>
+              <form className={`auth-card auth-ingestion-card signup-card signup-card-${authMode}`} onSubmit={submit}>
+                <div className="auth-card-head signup-head">
+                  <div>
+                    <h2>{audienceMode === "personal" ? "Cadastro com agenda obrigatória" : "Cadastro do hub com base real"}</h2>
+                    <p>
+                      {audienceMode === "personal"
+                        ? "O Grafy precisa nascer do Google Contacts ou do Apple Contacts exportado para mapear oportunidades de verdade."
+                        : "Hubs e eventos entram com dados qualificados da organização e uma base de participantes em Excel, CSV ou JSON."}
+                    </p>
+                  </div>
+                  <div className="auth-mode-toggle" aria-label="Modo de acesso">
+                    <button type="button" className={authMode === "signup" ? "active" : ""} onClick={() => setAuthMode("signup")}>
+                      Criar cadastro
+                    </button>
+                    <button type="button" className={authMode === "login" ? "active" : ""} onClick={() => setAuthMode("login")}>
+                      Entrar
+                    </button>
+                  </div>
+                </div>
+
+                {authMode === "signup" ? (
+                  <>
+                    <div className="source-requirement">
+                      <Fingerprint size={20} />
+                      <div>
+                        <strong>Google ou Apple é obrigatório para construir seu network.</strong>
+                        <small>{hasIdentitySource ? "Fonte conectada. Agora complete os dados para qualificar o grafo." : "Conecte uma fonte real antes de concluir o cadastro."}</small>
+                      </div>
+                    </div>
+
+                    <div className="connector-choice-row">
+                      <button className={`connector-choice ${googleConnected ? "connected" : ""}`} type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
+                        <Globe2 size={19} />
+                        <span>
+                          <strong>{googleImporting ? "Conectando Google..." : "Google Contacts"}</strong>
+                          <small>{googleClientConfigured ? "People API + Agenda" : "Client ID pendente"}</small>
+                        </span>
+                        <BadgeCheck size={16} />
+                      </button>
+                      <button className={`connector-choice ${appleConnected || applePreviewCount ? "connected" : ""}`} type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
+                        <UserRound size={19} />
+                        <span>
+                          <strong>{appleIdentityImporting ? "Vinculando Apple..." : "Apple"}</strong>
+                          <small>{appleClientConfigured ? "Apple ID + vCard" : "Apple ID pendente"}</small>
+                        </span>
+                        <BadgeCheck size={16} />
+                      </button>
+                      <button className={`connector-choice ${linkedinConnected ? "connected" : ""}`} type="button" onClick={handleLinkedinConnect}>
+                        <Link2 size={19} />
+                        <span>
+                          <strong>LinkedIn</strong>
+                          <small>perfil profissional</small>
+                        </span>
+                        <BadgeCheck size={16} />
+                      </button>
+                    </div>
+
+                    <div className="account-type-toggle">
+                      <button type="button" className={accountType === "personal" ? "active" : ""} onClick={() => setAccountType("personal")}>
+                        <ContactRound size={17} />
+                        Pessoal
+                      </button>
+                      <button type="button" className={accountType === "company" ? "active" : ""} onClick={() => setAccountType("company")}>
+                        <BriefcaseBusiness size={17} />
+                        Empresa
+                      </button>
+                    </div>
+
+                    <div className="signup-form-grid">
+                      <label className="smart-field">
+                        Nome completo
+                        <input
+                          value={fullName}
+                          onChange={(event) => setFullName(event.target.value.toLocaleUpperCase("pt-BR"))}
+                          placeholder="LENIN MARINHO"
+                          autoComplete="name"
+                        />
+                        <small className="field-insight"><BadgeCheck size={13} /> O nome fica padronizado em maiúsculas.</small>
+                      </label>
+                      <label className="smart-field">
+                        Email principal
+                        <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="voce@empresa.com" autoComplete="email" />
+                        <small className="field-insight"><Mail size={13} /> Usado para login, convites e deduplicação.</small>
+                      </label>
+                      <label className="smart-field">
+                        Telefone com DDD
+                        <input value={phone} onChange={(event) => setPhone(formatBrazilPhone(event.target.value))} inputMode="tel" placeholder="(11) 99999-9999" autoComplete="tel" />
+                        <small className="field-insight"><Phone size={13} /> {phoneInsight}</small>
+                      </label>
+                      <label className="smart-field">
+                        CEP principal
+                        <input value={cep} onChange={(event) => setCep(formatCep(event.target.value))} inputMode="numeric" placeholder="01310-100" autoComplete="postal-code" />
+                        <small className="field-insight"><MapPin size={13} /> {cepLoading ? "Consultando CEP..." : cepInsight || userCepFallback || "Ajuda o Grafy a cruzar oportunidades por região."}</small>
+                      </label>
+                      <label className="smart-field">
+                        Senha
+                        <span className="password-control">
+                          <input value={password} onChange={(event) => setPassword(event.target.value)} type={showPassword ? "text" : "password"} placeholder="Mínimo 8 caracteres" autoComplete="new-password" />
+                          <button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Ocultar senha" : "Ver senha"}>
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </span>
+                      </label>
+                      <label className="smart-field">
+                        Repetir senha
+                        <span className="password-control">
+                          <input value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} type={showConfirmPassword ? "text" : "password"} placeholder="Repita a senha" autoComplete="new-password" />
+                          <button type="button" onClick={() => setShowConfirmPassword((value) => !value)} aria-label={showConfirmPassword ? "Ocultar confirmacao" : "Ver confirmacao"}>
+                            {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </span>
+                      </label>
+                    </div>
+
+                    <div className="password-checklist">
+                      {passwordChecks.map((check) => (
+                        <span key={check.label} className={check.valid ? "valid" : ""}>
+                          {check.valid ? <Check size={13} /> : <X size={13} />}
+                          {check.label}
+                        </span>
+                      ))}
+                    </div>
+
+                    <label className="smart-field full-span-field">
+                      LinkedIn ou página profissional
+                      <span className="linkedin-control">
+                        <input value={linkedinUrl} onChange={(event) => setLinkedinUrl(event.target.value)} placeholder="https://www.linkedin.com/in/seu-perfil" />
+                        <button className="secondary-button compact" type="button" onClick={handleLinkedinConnect}>
+                          <Link2 size={15} />
+                          Vincular
+                        </button>
+                      </span>
+                    </label>
+
+                    {accountType === "company" && (
+                      <div className="company-data-panel">
+                        <div className="company-data-head">
+                          <Building2 size={18} />
+                          <span>
+                            <strong>Dados para qualificar oportunidades B2B</strong>
+                            <small>Esses campos ajudam a separar cargo, segmento, porte e localização no grafo.</small>
+                          </span>
+                        </div>
+                        <div className="signup-form-grid">
+                          <label>
+                            Empresa ou hub
+                            <input value={companyName} onChange={(event) => setCompanyName(event.target.value)} placeholder="Cogmo" autoComplete="organization" />
+                          </label>
+                          <label>
+                            Cargo atual
+                            <input value={companyRole} onChange={(event) => setCompanyRole(event.target.value)} placeholder="Diretor comercial" autoComplete="organization-title" />
+                          </label>
+                          <label>
+                            Segmento
+                            <select value={companySegment} onChange={(event) => setCompanySegment(event.target.value)}>
+                              <option value="">Selecione</option>
+                              <option value="Tecnologia">Tecnologia</option>
+                              <option value="Serviços B2B">Serviços B2B</option>
+                              <option value="Indústria">Indústria</option>
+                              <option value="Educação">Educação</option>
+                              <option value="Eventos e comunidades">Eventos e comunidades</option>
+                              <option value="Varejo">Varejo</option>
+                            </select>
+                          </label>
+                          <label>
+                            Porte
+                            <select value={companySize} onChange={(event) => setCompanySize(event.target.value)}>
+                              <option value="">Não informado</option>
+                              <option value="1-10">1 a 10 pessoas</option>
+                              <option value="11-50">11 a 50 pessoas</option>
+                              <option value="51-200">51 a 200 pessoas</option>
+                              <option value="201+">201+ pessoas</option>
+                            </select>
+                          </label>
+                          <label>
+                            CNPJ
+                            <input value={cnpj} onChange={(event) => setCnpj(formatCnpj(event.target.value))} inputMode="numeric" placeholder="00.000.000/0000-00" />
+                          </label>
+                          <label>
+                            CEP da sede
+                            <input value={companyCep} onChange={(event) => setCompanyCep(formatCep(event.target.value))} inputMode="numeric" placeholder="00000-000" />
+                          </label>
+                        </div>
+                      </div>
+                    )}
+
+                    {audienceMode === "personal" ? (
+                      <>
+                        <div className="apple-onboarding">
+                          <div className="onboarding-source-card">
+                            <strong>Apple Contacts</strong>
+                            <small>Carregue o .vcf exportado do iCloud/Contatos.</small>
+                            <input
+                              className="file-input"
+                              type="file"
+                              accept=".vcf,text/vcard,text/x-vcard"
+                              onChange={(event) => handleTextFile(event, setAppleVcardText, "vCard Apple")}
+                            />
+                          </div>
+                          <div className="onboarding-source-card">
+                            <strong>Apple Agenda</strong>
+                            <small>Carregue .ics para transformar participantes em contexto.</small>
+                            <input
+                              className="file-input"
+                              type="file"
+                              accept=".ics,text/calendar"
+                              onChange={(event) => handleTextFile(event, setAppleIcsText, "Agenda Apple")}
+                            />
+                          </div>
+                        </div>
+                        <div className="onboarding-preview-row">
+                          <span>{applePreviewCount ? `${applePreviewCount} contato(s) Apple prontos` : "Apple no web: identidade por Apple ID; contatos por .vcf/.ics"}</span>
+                          <button className="primary-button compact" type="button" onClick={handleAppleLogin} disabled={!applePreviewCount}>
+                            <Upload size={16} />
+                            Entrar importando Apple
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="hub-ingestion-panel">
+                        <label className="hub-file-drop">
+                          <Database size={20} />
+                          <span>
+                            <strong>Excel, CSV ou JSON da base</strong>
+                            <small>Use colunas como nome, email, telefone, empresa, cargo, area, tags, demanda, resolve e LinkedIn.</small>
+                          </span>
+                          <input type="file" accept=".xlsx,.xls,.csv,.json,text/csv,application/json" onChange={handleHubFile} />
+                        </label>
+                        <label>
+                          Colar CSV ou JSON
+                          <textarea
+                            className="csv-box compact-ingestion-box"
+                            value={hubImportText}
+                            onChange={(event) => handleHubImportTextChange(event.target.value)}
+                            placeholder="nome,email,telefone,empresa,cargo,area,tags,demanda,resolve,linkedin"
+                          />
+                        </label>
+                        <div className="data-preview-summary">
+                          <span>{hubFileName || `${hubImportSource} colado`}</span>
+                          <strong>{hubPreview.length} pessoa(s) reconhecida(s)</strong>
+                          <small>{hubPreview.slice(0, 3).map((contact) => contact.name).filter(Boolean).join(" · ") || "Carregue uma base para ver o preview."}</small>
+                        </div>
+                      </div>
+                    )}
+
+                    <button className="primary-button signup-submit glow-button" type="submit">
+                      {audienceMode === "personal" ? <ContactRound size={18} /> : <Users size={18} />}
+                      {audienceMode === "personal" ? "Validar cadastro e importar rede" : `Criar hub com ${hubPreview.length || "base real"}`}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="connector-choice-row login-connectors">
+                      <button className="connector-choice" type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
+                        <Globe2 size={19} />
+                        <span><strong>Entrar com Google</strong><small>reconstruir contatos</small></span>
+                        <ChevronRight size={16} />
+                      </button>
+                      <button className="connector-choice" type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
+                        <UserRound size={19} />
+                        <span><strong>Entrar com Apple</strong><small>identidade + vCard</small></span>
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                    <div className="signup-form-grid">
+                      <label>
+                        Email
+                        <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="voce@empresa.com" autoComplete="email" />
+                      </label>
+                      <label>
+                        Senha
+                        <span className="password-control">
+                          <input value={password} onChange={(event) => setPassword(event.target.value)} type={showPassword ? "text" : "password"} placeholder="Sua senha" autoComplete="current-password" />
+                          <button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "Ocultar senha" : "Ver senha"}>
+                            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                          </button>
+                        </span>
+                      </label>
+                    </div>
+                    <button className="secondary-button signup-submit" type="submit">
+                      <KeyRound size={18} />
+                      Validar login
+                    </button>
+                  </>
+                )}
+
+                <p className="prototype-note">
+                  Dados ficam neste navegador. Google usa OAuth/People API quando configurado; Apple no PWA usa Sign in with Apple para identidade e .vcf/.ics para contatos.
+                </p>
+                {status && <p className="auth-status">{status}</p>}
+              </form>
+
+              <form className="auth-card auth-ingestion-card legacy-auth-card" onSubmit={submit}>
                 <div className="auth-card-head">
                   <div>
                     <h2>{audienceMode === "personal" ? "Vincule sua conta e traga contatos reais" : "Carregue a base real do hub"}</h2>
@@ -1361,6 +1833,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
 }
 
 function LandingChoicePage({ onChoose }: { onChoose: (mode: LandingMode) => void }) {
+  const [hoveredChoice, setHoveredChoice] = useState<AudienceMode | null>(null);
   const choices = [
     {
       mode: "personal" as const,
@@ -1398,17 +1871,32 @@ function LandingChoicePage({ onChoose }: { onChoose: (mode: LandingMode) => void
         </p>
       </div>
 
-      <div className="choice-card-grid" aria-label="Escolha seu tipo de negócio">
-        {choices.map((choice, index) => {
+      <div className={`choice-card-grid ${hoveredChoice ? "has-hover" : ""}`} aria-label="Escolha seu tipo de negócio">
+        {choices.map((choice) => {
           const Icon = choice.icon;
+          const isActive = hoveredChoice === choice.mode;
+          const isMuted = Boolean(hoveredChoice && !isActive);
           return (
             <motion.button
               key={choice.mode}
-              className={`choice-card choice-card-${choice.mode} spotlight-card`}
+              className={`choice-card choice-card-${choice.mode} spotlight-card ${isActive ? "choice-card-active" : ""} ${isMuted ? "choice-card-muted" : ""}`}
               onClick={() => onChoose(choice.mode)}
-              animate={{ y: [0, index === 0 ? -10 : 10, 0] }}
-              transition={{ duration: 7 + index, repeat: Infinity, ease: "easeInOut" }}
+              onMouseEnter={() => setHoveredChoice(choice.mode)}
+              onMouseLeave={() => setHoveredChoice(null)}
+              onFocus={() => setHoveredChoice(choice.mode)}
+              onBlur={() => setHoveredChoice(null)}
+              animate={
+                hoveredChoice
+                  ? { y: isActive ? -14 : 8, scale: isActive ? 1.045 : 0.965, opacity: isMuted ? 0.74 : 1 }
+                  : { y: 0, scale: 1, opacity: 1 }
+              }
+              transition={{ duration: hoveredChoice ? 0.28 : 0.35, ease: "easeOut" }}
             >
+              <span className="choice-card-neural" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
               <span className="choice-icon"><Icon size={25} /></span>
               <small>{choice.label}</small>
               <strong>{choice.title}</strong>
