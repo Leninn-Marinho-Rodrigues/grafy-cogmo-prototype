@@ -1656,16 +1656,16 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                       <button className={`connector-choice ${googleConnected ? "connected" : ""}`} type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
                         <Globe2 size={19} />
                         <span>
-                          <strong>{googleImporting ? "Conectando Google..." : "Criar com Google"}</strong>
-                          <small>{googleClientConfigured ? "Conta + Contacts + Agenda" : "Client ID pendente"}</small>
+                          <strong>{googleImporting ? "Conectando Google..." : googleClientConfigured ? "Criar com Google" : "Google OAuth pendente"}</strong>
+                          <small>{googleClientConfigured ? "Conta + Contacts + Agenda" : "adicione VITE_GOOGLE_CLIENT_ID"}</small>
                         </span>
                         <BadgeCheck size={16} />
                       </button>
                       <button className={`connector-choice ${appleConnected || applePreviewCount ? "connected" : ""}`} type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
                         <UserRound size={19} />
                         <span>
-                          <strong>{appleIdentityImporting ? "Vinculando Apple..." : "Criar com Apple"}</strong>
-                          <small>{appleClientConfigured ? "Apple ID + vCard" : "Apple ID pendente"}</small>
+                          <strong>{appleIdentityImporting ? "Vinculando Apple..." : appleClientConfigured ? "Criar com Apple" : "Apple OAuth pendente"}</strong>
+                          <small>{appleClientConfigured ? "Apple ID + vCard" : "adicione Service ID + redirect"}</small>
                         </span>
                         <BadgeCheck size={16} />
                       </button>
@@ -1877,12 +1877,12 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                     <div className="connector-choice-row login-connectors">
                       <button className="connector-choice" type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
                         <Globe2 size={19} />
-                        <span><strong>Entrar com Google</strong><small>reconstruir contatos</small></span>
+                        <span><strong>{googleClientConfigured ? "Entrar com Google" : "Google OAuth pendente"}</strong><small>{googleClientConfigured ? "reconstruir contatos" : "adicione VITE_GOOGLE_CLIENT_ID"}</small></span>
                         <ChevronRight size={16} />
                       </button>
                       <button className="connector-choice" type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
                         <UserRound size={19} />
-                        <span><strong>Entrar com Apple</strong><small>identidade + vCard</small></span>
+                        <span><strong>{appleClientConfigured ? "Entrar com Apple" : "Apple OAuth pendente"}</strong><small>{appleClientConfigured ? "identidade + vCard" : "adicione Service ID"}</small></span>
                         <ChevronRight size={16} />
                       </button>
                     </div>
