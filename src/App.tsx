@@ -306,12 +306,15 @@ const envScope = (value: unknown, fallback: string) => {
   return normalized || fallback;
 };
 
+const GOOGLE_CONTACTS_SCOPE = envScope(import.meta.env.VITE_GOOGLE_CONTACTS_SCOPE, "https://www.googleapis.com/auth/contacts.readonly");
+const GOOGLE_CALENDAR_SCOPE = envScope(import.meta.env.VITE_GOOGLE_CALENDAR_SCOPE, "https://www.googleapis.com/auth/calendar.readonly");
+const GOOGLE_IMPORT_CALENDAR = envString(import.meta.env.VITE_GOOGLE_IMPORT_CALENDAR).toLowerCase() === "true";
 const GOOGLE_IMPORT_SCOPES = [
   "openid",
   "email",
   "profile",
-  envScope(import.meta.env.VITE_GOOGLE_CONTACTS_SCOPE, "https://www.googleapis.com/auth/contacts.readonly"),
-  envScope(import.meta.env.VITE_GOOGLE_CALENDAR_SCOPE, "https://www.googleapis.com/auth/calendar.readonly")
+  GOOGLE_CONTACTS_SCOPE,
+  ...(GOOGLE_IMPORT_CALENDAR ? [GOOGLE_CALENDAR_SCOPE] : [])
 ].join(" ");
 
 const decodeJwtPayload = (token?: string): Record<string, unknown> => {
@@ -690,7 +693,7 @@ const fetchGoogleContactsAndCalendar = async (accessToken: string): Promise<Goog
   const [profile, peopleContacts, calendarContacts] = await Promise.all([
     fetchGoogleUserProfile(accessToken),
     fetchGooglePeopleContacts(accessToken, now),
-    fetchGoogleCalendarContacts(accessToken, now)
+    GOOGLE_IMPORT_CALENDAR ? fetchGoogleCalendarContacts(accessToken, now) : Promise.resolve([])
   ]);
   const contacts = mergeContactsByEmailOrPhone([...peopleContacts, ...calendarContacts]);
   return {
@@ -740,8 +743,8 @@ const requestFirebaseGoogleNetworkImport = async (
   const auth = getAuth(app);
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
-  provider.addScope(envScope(import.meta.env.VITE_GOOGLE_CONTACTS_SCOPE, "https://www.googleapis.com/auth/contacts.readonly"));
-  provider.addScope(envScope(import.meta.env.VITE_GOOGLE_CALENDAR_SCOPE, "https://www.googleapis.com/auth/calendar.readonly"));
+  provider.addScope(GOOGLE_CONTACTS_SCOPE);
+  if (GOOGLE_IMPORT_CALENDAR) provider.addScope(GOOGLE_CALENDAR_SCOPE);
 
   onStatus("Abrindo Google...");
   const result = await signInWithPopup(auth, provider);
@@ -758,7 +761,7 @@ const requestFirebaseGoogleNetworkImport = async (
   }
 
   try {
-    onStatus("Login Google concluído. Importando Contacts e Agenda autorizados...");
+    onStatus(GOOGLE_IMPORT_CALENDAR ? "Login Google concluído. Importando Contacts e Agenda autorizados..." : "Login Google concluído. Importando Google Contacts autorizados...");
     const googleImport = await fetchGoogleContactsAndCalendar(credential.accessToken);
     return {
       ...googleImport,
@@ -816,7 +819,7 @@ const requestGoogleNetworkImport = async (
           return;
         }
         try {
-          onStatus("Importando perfil, Google Contacts e Agenda autorizados...");
+          onStatus(GOOGLE_IMPORT_CALENDAR ? "Importando perfil, Google Contacts e Agenda autorizados..." : "Importando perfil e Google Contacts autorizados...");
           resolve(await fetchGoogleContactsAndCalendar(response.access_token));
         } catch (error) {
           reject(error instanceof Error ? error : new Error("Falha ao importar dados do Google."));
@@ -1771,7 +1774,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
           title: "Google respondeu ao clique",
           body:
             "O app já tem o fluxo de Google preparado. Esta publicação só precisa receber a configuração oficial do Firebase ou Google OAuth para abrir o popup real como Epic, Google e outros apps fazem.",
-          permission: "Conta Google, perfil, Google Contacts e Agenda autorizados pelo usuário."
+          permission: GOOGLE_IMPORT_CALENDAR ? "Conta Google, perfil, Google Contacts e Agenda autorizados pelo usuário." : "Conta Google, perfil e Google Contacts autorizados pelo usuário."
         };
 
   return (
@@ -1818,7 +1821,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
               <p>
                 {isSignupLanding
                   ? audienceMode === "personal"
-                    ? "Escolha Google ou Apple para criar a conta. O Google já solicita permissão de contatos e agenda; no Apple web, vincule o Apple ID e carregue seus contatos exportados para o Grafy montar a rede."
+                    ? "Escolha Google ou Apple para criar a conta. O Google solicita permissão para importar contatos; a Agenda pode ser ativada como etapa opcional. No Apple web, vincule o Apple ID e carregue seus contatos exportados para o Grafy montar a rede."
                     : "Crie a conta do hub, qualifique os dados da organização e carregue a base de participantes em Excel, CSV ou JSON para abrir o workspace com relações reais."
                   : activeCopy.body}
               </p>
@@ -1922,7 +1925,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                         <button className={`provider-option google ${googleConnected ? "connected" : ""}`} type="button" onClick={handleGoogleLogin} disabled={googleImporting}>
                           <span className="provider-logo google">G</span>
                           <strong>{googleImporting ? "Abrindo Google..." : "Continuar com Google"}</strong>
-                          <small>Conta, contatos e agenda autorizados</small>
+                          <small>Conta e contatos autorizados</small>
                         </button>
                         <button className={`provider-option apple ${appleConnected || applePreviewCount ? "connected" : ""}`} type="button" onClick={handleAppleIdentityLogin} disabled={appleIdentityImporting}>
                           <span className="provider-logo apple"><UserRound size={18} /></span>
@@ -2245,7 +2248,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
                   <li>Ativar Firebase Authentication e habilitar o provedor {providerFallbackLabel}.</li>
                   <li>Autorizar o domínio desta publicação e qualquer novo domínio de teste.</li>
                   <li>Salvar as chaves do app como segredos do build e publicar novamente.</li>
-                  <li>No Google, habilitar People API e Calendar API para importar contatos e agenda autorizados.</li>
+                  <li>No Google, habilitar People API para contatos; Calendar API só se a Agenda opcional estiver ativada.</li>
                 </ol>
               </div>
             )}
@@ -3047,10 +3050,12 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
         return;
       }
       addContacts(googleImport.contacts);
+      const importBreakdown = GOOGLE_IMPORT_CALENDAR
+        ? ` (${googleImport.stats.peopleContacts} de Contacts, ${googleImport.stats.calendarContacts} de Agenda${googleImport.stats.totalBeforeMerge !== googleImport.contacts.length ? ", com duplicados unidos" : ""})`
+        : ` (${googleImport.stats.peopleContacts} de Contacts${googleImport.stats.totalBeforeMerge !== googleImport.contacts.length ? ", com duplicados unidos" : ""})`;
       setGoogleStatus(
-        `${googleImport.contacts.length} contato(s)/participante(s) importado(s) via Google Contacts + Agenda` +
-          ` (${googleImport.stats.peopleContacts} de Contacts, ${googleImport.stats.calendarContacts} de Agenda` +
-          `${googleImport.stats.totalBeforeMerge !== googleImport.contacts.length ? ", com duplicados unidos" : ""})` +
+        `${googleImport.contacts.length} contato(s)/participante(s) importado(s) via ${GOOGLE_IMPORT_CALENDAR ? "Google Contacts + Agenda" : "Google Contacts"}` +
+          importBreakdown +
           `${googleImport.profile.email ? ` para ${googleImport.profile.email}` : ""}.`
       );
     } catch (error) {

@@ -99,7 +99,7 @@ O perfil concentra informações que viram sinais úteis para rede, busca e graf
 Em **Ajustes**, o protótipo organiza conectores por status e deixa claro o caminho seguro:
 
 - Google Contacts via OAuth e People API quando `VITE_GOOGLE_CLIENT_ID` estiver configurado.
-- Google Agenda via OAuth e Calendar API quando `VITE_GOOGLE_CLIENT_ID` estiver configurado.
+- Google Agenda via OAuth e Calendar API quando `VITE_GOOGLE_IMPORT_CALENDAR=true` estiver configurado.
 - Apple Contacts por vCard/.vcf no web e por Contacts framework no app nativo futuro.
 - Apple Agenda por `.ics` no web e por EventKit no app nativo futuro.
 - LinkedIn oficial ou enriquecimento assistido com revisão humana.

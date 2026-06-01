@@ -46,7 +46,7 @@ Comente que cada pessoa pode testar sem criar conta real e que autenticação pe
 
 Abra **Importar** e demonstre:
 
-- **Google Data Hub:** repete o conector para Contacts + Agenda e deixa claro quando falta Client ID.
+- **Google Data Hub:** repete o conector para Contacts, com Agenda opcional, e deixa claro quando falta Client ID.
 - **Apple Contacts + Calendar:** importa `.vcf` do iCloud/Contatos ou `.ics` da Apple Agenda.
 - **Excel/CSV/JSON:** caminho principal para bases corporativas, hubs e eventos.
 

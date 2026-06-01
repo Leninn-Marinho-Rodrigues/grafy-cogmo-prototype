@@ -36,8 +36,8 @@ O protótipo agora demonstra a entrada de dados que o produto precisa ter em pro
 
 - **B2C:** empresário/conector individual importa Google Contacts, Apple vCard/.ics e agenda própria para achar clientes, fornecedores, parceiros e oportunidades.
 - **B2B/B2B2C:** hub, evento, empresa ou comunidade importa Excel, CSV ou JSON com membros/participantes, cria grupos compartilhados e usa o grafo para curadoria de conexões.
-- **Onboarding data-first:** a primeira entrada do usuário já pede Google Contacts + Google Agenda, Apple ID + `.vcf/.ics` ou arquivo de hub, para que o workspace abra com contatos reais quando houver consentimento/importação.
-- **Google Data Hub:** quando `VITE_GOOGLE_CLIENT_ID` existe, a UI abre OAuth e lê Google People API + Google Calendar API no navegador; em produção, o mesmo fluxo deve passar por backend/Edge Function para guardar tokens com segurança.
+- **Onboarding data-first:** a primeira entrada do usuário já pede Google Contacts, Google Agenda opcional, Apple ID + `.vcf/.ics` ou arquivo de hub, para que o workspace abra com contatos reais quando houver consentimento/importação.
+- **Google Data Hub:** quando `VITE_GOOGLE_CLIENT_ID` existe, a UI abre OAuth e lê Google People API no navegador; Calendar API fica opcional por `VITE_GOOGLE_IMPORT_CALENDAR=true`. Em produção, o mesmo fluxo deve passar por backend/Edge Function para guardar tokens com segurança.
 - **Apple Contacts + Calendar:** no web, Sign in with Apple não entrega a lista de contatos do iCloud; por isso a UI aceita vCard/.vcf para contatos e `.ics` para agenda. Para app nativo futuro, usar Contacts framework e EventKit.
 - **Localidade por DDD:** telefones continuam gerando DDD; o DDD agora também aparece como localidade/região para filtro, grafo, detalhe do contato e chat.
 
