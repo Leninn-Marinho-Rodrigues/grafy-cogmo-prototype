@@ -152,6 +152,20 @@ export interface EnrichmentRuntimeSignal {
   detail: string;
 }
 
+export interface EnrichmentResearchLink {
+  label: string;
+  url: string;
+  detail: string;
+}
+
+export interface EnrichmentSuggestedUpdate {
+  field: "headline" | "empresa" | "cargo" | "area" | "linkedin" | "tags" | "notes";
+  current: string;
+  suggested: string;
+  reason: string;
+  strength: "forte" | "media" | "baixa";
+}
+
 export interface EnrichmentSuggestion {
   id: string;
   contactId: string;
@@ -166,6 +180,11 @@ export interface EnrichmentSuggestion {
   confidence: number;
   evidence: string[];
   tags: string[];
+  missingFields?: string[];
+  nextActions?: string[];
+  qualityScore?: number;
+  researchLinks?: EnrichmentResearchLink[];
+  updates?: EnrichmentSuggestedUpdate[];
   runtimeSignals: EnrichmentRuntimeSignal[];
   status: "needs_review" | "suggested" | "applied" | "ignored";
 }

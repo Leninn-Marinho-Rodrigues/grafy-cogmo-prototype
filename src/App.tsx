@@ -50,7 +50,7 @@ import {
   buildGraph,
   buildOpportunityMatches,
   buildLinkedinResearchUrl,
-  buildProfessionalEnrichmentSuggestions,
+  buildActionableProfessionalEnrichmentSuggestions,
   contactEnrichmentApiCatalog,
   contactEnrichmentLibraryCatalog,
   contactMatchesGraphFilters,
@@ -3108,7 +3108,7 @@ function ContactForm({ onSave, onCancel }: { onSave: (contact: Contact) => void;
   );
 }
 
-function ImportView({ addContacts, state, setView, updateContact, setSelectedContactId }: AppShellProps) {
+function ImportView({ addContacts, state, setState, setView, updateContact, setSelectedContactId }: AppShellProps) {
   const [importText, setImportText] = useState("");
   const [filePreview, setFilePreview] = useState<Partial<Contact>[] | null>(null);
   const [fileName, setFileName] = useState("");
@@ -3298,15 +3298,23 @@ function ImportView({ addContacts, state, setView, updateContact, setSelectedCon
 
   const enrichmentBase = linkedinQuery ? searchContacts(state.contacts, linkedinQuery) : state.contacts;
   const enrichmentSuggestions = useMemo(
-    () => buildProfessionalEnrichmentSuggestions(enrichmentBase, 8),
+    () => buildActionableProfessionalEnrichmentSuggestions(enrichmentBase, 8),
     [enrichmentBase]
   );
+  const actionableEnrichmentCount = enrichmentSuggestions.filter((suggestion) =>
+    suggestion.confidence >= 72 || (suggestion.updates ?? []).some((update) => update.strength === "forte" || update.strength === "media")
+  ).length;
+  const averageEnrichmentQuality = enrichmentSuggestions.length
+    ? Math.round(enrichmentSuggestions.reduce((sum, suggestion) => sum + (suggestion.qualityScore ?? suggestion.confidence), 0) / enrichmentSuggestions.length)
+    : 0;
 
-  const applyEnrichmentSuggestion = (suggestion: EnrichmentSuggestion) => {
-    const contact = state.contacts.find((item) => item.id === suggestion.contactId);
-    if (!contact) return;
+  const buildEnrichmentPatch = (contact: Contact, suggestion: EnrichmentSuggestion): Partial<Contact> => {
     const shouldPersistLinkedin = suggestion.profileUrl.includes("linkedin.com/in/");
-    updateContact(contact.id, {
+    const currentCompany = String(contact.customFields.empresa ?? "").trim();
+    const currentRole = String(contact.customFields.cargo ?? "").trim();
+    const currentArea = String(contact.customFields.area ?? "").trim();
+
+    return {
       headline: contact.headline || suggestion.headline,
       tags: unique([...contact.tags, ...suggestion.tags]),
       links: shouldPersistLinkedin && !contact.links.some((link) => link.kind === "linkedin")
@@ -3314,18 +3322,52 @@ function ImportView({ addContacts, state, setView, updateContact, setSelectedCon
         : contact.links,
       customFields: {
         ...contact.customFields,
-        empresa: String(contact.customFields.empresa ?? suggestion.company),
-        cargo: String(contact.customFields.cargo ?? suggestion.role),
-        enriquecimentoProfissional: `${suggestion.providerLabel} · ${suggestion.confidence}% · revisão humana`
+        empresa: currentCompany || suggestion.company,
+        cargo: currentRole || suggestion.role,
+        area: currentArea || String(suggestion.updates?.find((update) => update.field === "area")?.suggested ?? ""),
+        enriquecimentoProfissional: `${suggestion.providerLabel} · ${suggestion.confidence}% · revisão humana`,
+        qualidadeProfissional: `${suggestion.qualityScore ?? suggestion.confidence}%`,
+        pendenciasProfissionais: (suggestion.missingFields ?? []).join(", "),
+        pesquisaLinkedin: shouldPersistLinkedin ? "" : suggestion.profileUrl
       },
       notes: unique([
         contact.notes,
         `Enriquecimento sugerido por ${suggestion.providerLabel}: ${suggestion.evidence.slice(0, 3).join(" | ")}`
       ]).join("\n")
-    });
+    };
+  };
+
+  const applyEnrichmentSuggestion = (suggestion: EnrichmentSuggestion) => {
+    const contact = state.contacts.find((item) => item.id === suggestion.contactId);
+    if (!contact) return;
+    updateContact(contact.id, buildEnrichmentPatch(contact, suggestion));
     setSelectedContactId(contact.id);
     setEnrichmentStatus(`${contact.name} atualizado com cargo, empresa, tags e evidências revisadas.`);
     setView("contacts");
+  };
+
+  const applyStrongEnrichmentSignals = () => {
+    const actionableSuggestions = enrichmentSuggestions.filter((suggestion) =>
+      suggestion.confidence >= 72 || (suggestion.updates ?? []).some((update) => update.strength === "forte" || update.strength === "media")
+    );
+    if (!actionableSuggestions.length) {
+      setEnrichmentStatus("Nenhum sinal forte para aplicar agora. Abra a evidência pública e revise manualmente os contatos mais incompletos.");
+      return;
+    }
+    const suggestionByContact = new Map(actionableSuggestions.map((suggestion) => [suggestion.contactId, suggestion]));
+    setState((current) => ({
+      ...current,
+      contacts: current.contacts.map((contact) => {
+        const suggestion = suggestionByContact.get(contact.id);
+        if (!suggestion) return contact;
+        return {
+          ...contact,
+          ...buildEnrichmentPatch(contact, suggestion),
+          updatedAt: new Date().toISOString()
+        };
+      })
+    }));
+    setEnrichmentStatus(`${actionableSuggestions.length} contato(s) receberam cargo, empresa, área, tags e pendências profissionais quando havia sinal seguro.`);
   };
 
   const linkedinContacts = searchContacts(state.contacts, linkedinQuery).slice(0, 6);
@@ -3561,6 +3603,17 @@ function ImportView({ addContacts, state, setView, updateContact, setSelectedCon
             </article>
           </div>
 
+          <div className="enrichment-action-strip">
+            <div>
+              <strong>{actionableEnrichmentCount} sinal(is) acionáveis</strong>
+              <span>Qualidade média: {averageEnrichmentQuality}% · campos vazios não bloqueiam mais a aplicação de empresa/cargo.</span>
+            </div>
+            <button className="primary-button compact" type="button" onClick={applyStrongEnrichmentSignals}>
+              <WandSparkles size={16} />
+              Aplicar sinais fortes
+            </button>
+          </div>
+
           <div className="enrichment-grid">
             {enrichmentSuggestions.map((suggestion) => {
               const contact = state.contacts.find((item) => item.id === suggestion.contactId);
@@ -3581,9 +3634,46 @@ function ImportView({ addContacts, state, setView, updateContact, setSelectedCon
                     <Info icon={MapPin} label="Região" value={suggestion.location} />
                     <Info icon={ShieldCheck} label="Fonte" value={suggestion.providerLabel} />
                   </div>
+                  <div className="enrichment-quality">
+                    <div>
+                      <strong>{suggestion.qualityScore ?? suggestion.confidence}%</strong>
+                      <span>qualidade do contato</span>
+                    </div>
+                    <div>
+                      <strong>{(suggestion.missingFields ?? []).length || "0"}</strong>
+                      <span>campo(s) faltando</span>
+                    </div>
+                    <div>
+                      <strong>{(suggestion.updates ?? []).filter((update) => update.strength !== "baixa").length}</strong>
+                      <span>sinal(is) aplicáveis</span>
+                    </div>
+                  </div>
+                  {!!suggestion.missingFields?.length && (
+                    <div className="missing-field-row">
+                      {suggestion.missingFields.map((field) => <span key={field}>{field}</span>)}
+                    </div>
+                  )}
+                  {!!suggestion.updates?.length && (
+                    <div className="suggested-update-list">
+                      <strong>O que o Grafy consegue melhorar agora</strong>
+                      {suggestion.updates.slice(0, 4).map((update) => (
+                        <div key={`${suggestion.id}-${update.field}-${update.suggested}`}>
+                          <span className={`update-strength ${update.strength}`}>{update.strength}</span>
+                          <p><b>{update.field}</b>: {update.suggested}</p>
+                          <small>{update.reason}</small>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <ul className="evidence-list">
                     {suggestion.evidence.slice(0, 4).map((item) => <li key={item}>{item}</li>)}
                   </ul>
+                  {!!suggestion.nextActions?.length && (
+                    <div className="next-action-list">
+                      <strong>Próximos passos</strong>
+                      {suggestion.nextActions.slice(0, 3).map((action) => <span key={action}>{action}</span>)}
+                    </div>
+                  )}
                   <div className="runtime-signal-panel">
                     <strong>APIs e bibliotecas usadas nesta leitura</strong>
                     <div className="runtime-signal-grid">
@@ -3600,6 +3690,16 @@ function ImportView({ addContacts, state, setView, updateContact, setSelectedCon
                   <div className="tag-cloud compact">
                     {suggestion.tags.slice(0, 6).map((tag) => <span className={`tag-chip ${tagToneClass(tag)}`} key={tag}>{tag}</span>)}
                   </div>
+                  {!!suggestion.researchLinks?.length && (
+                    <div className="research-link-row">
+                      {suggestion.researchLinks.slice(0, 3).map((link) => (
+                        <button key={link.label} className="secondary-button compact ghost" type="button" onClick={() => window.open(link.url, "_blank", "noopener,noreferrer")}>
+                          <Search size={15} />
+                          {link.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="button-row">
                     <button className="secondary-button compact" type="button" onClick={() => window.open(suggestion.profileUrl, "_blank", "noopener,noreferrer")}>
                       <Link2 size={16} />

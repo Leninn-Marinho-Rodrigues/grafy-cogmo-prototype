@@ -7,8 +7,10 @@ import type {
   Contact,
   EnrichmentLibraryDefinition,
   EnrichmentProviderDefinition,
+  EnrichmentResearchLink,
   EnrichmentRuntimeSignal,
   EnrichmentSuggestion,
+  EnrichmentSuggestedUpdate,
   GrafyState,
   GraphEdge,
   GraphNode,
@@ -290,6 +292,292 @@ const providerStatusLabel: Record<EnrichmentProviderDefinition["status"], Enrich
   risco: "restrito"
 };
 
+type InferenceSignal = {
+  value: string;
+  confidence: number;
+  reason: string;
+  source: "campo" | "google" | "headline" | "email" | "tags" | "texto";
+};
+
+const EMPTY_SIGNAL: InferenceSignal = { value: "", confidence: 0, reason: "", source: "texto" };
+
+const personalEmailDomains = new Set([
+  "gmail",
+  "hotmail",
+  "outlook",
+  "icloud",
+  "yahoo",
+  "live",
+  "proton",
+  "uol",
+  "bol",
+  "terra",
+  "me"
+]);
+
+const roleKeywordMap: Array<[RegExp, string]> = [
+  [/\b(ceo|presidente|diretor|diretora|director|cfo|cto|coo|cio|vp|vice[-\s]?presidente)\b/i, "Diretor"],
+  [/\b(founder|fundador|fundadora|co[-\s]?founder|socio|socia|sócio|sócia)\b/i, "Founder / Sócio"],
+  [/\b(head|lider|líder|lead|gestor|gestora|gerente|manager)\b/i, "Gestor"],
+  [/\b(coordenador|coordenadora|coordinator)\b/i, "Coordenador"],
+  [/\b(especialista|specialist|consultor|consultora|advisor|assessor|assessora)\b/i, "Especialista"],
+  [/\b(analista|analyst)\b/i, "Analista"],
+  [/\b(vendedor|vendedora|comercial|sales|account executive|sdr|bdr)\b/i, "Comercial"],
+  [/\b(recrutador|recrutadora|recruiter|talent acquisition|rh|people)\b/i, "RH / People"],
+  [/\b(investidor|investidora|investor|venture|partner)\b/i, "Investidor"]
+];
+
+const areaKeywordMap: Array<[RegExp, string]> = [
+  [/\b(marketing|growth|brand|conteudo|conteúdo|midia|mídia|crm)\b/i, "Marketing"],
+  [/\b(vendas|comercial|sales|receita|revenue|parcerias|partnerships)\b/i, "Comercial"],
+  [/\b(financas|finanças|financeiro|contabilidade|cfo|fiscal|tributario|tributário)\b/i, "Finanças"],
+  [/\b(tecnologia|tech|software|dados|data|ia|ai|engenharia|developer|dev|produto)\b/i, "Tecnologia"],
+  [/\b(operacoes|operações|logistica|logística|supply|processos)\b/i, "Operações"],
+  [/\b(rh|people|talent|recrutamento|cultura|educacao|educação)\b/i, "RH"],
+  [/\b(juridico|jurídico|legal|contratos|compliance)\b/i, "Jurídico"],
+  [/\b(evento|eventos|comunidade|community|hub|networking)\b/i, "Comunidade/Eventos"],
+  [/\b(saude|saúde|health|clinica|clínica|medico|médico)\b/i, "Saúde"]
+];
+
+const seniorityTagMap: Array<[RegExp, string]> = [
+  [/\b(ceo|presidente|diretor|diretora|c-level|cfo|cto|coo|cio|vp)\b/i, "decisor"],
+  [/\b(founder|fundador|fundadora|socio|socia|sócio|sócia)\b/i, "fundador"],
+  [/\b(head|gerente|gestor|gestora|lider|líder|lead)\b/i, "liderança"],
+  [/\b(comercial|sales|vendas|receita|revenue)\b/i, "potencial comercial"]
+];
+
+const getPrimaryEmailDomain = (email?: string) => email?.split("@")[1]?.trim().toLowerCase() ?? "";
+
+const getEmailDomainName = (email?: string) => {
+  const domain = getPrimaryEmailDomain(email);
+  if (!domain) return "";
+  const parsed = parseDomain(domain);
+  return parsed.domainWithoutSuffix || parsed.domain || domain.split(".")[0] || "";
+};
+
+const isCorporateEmail = (email?: string) => {
+  const domainName = getEmailDomainName(email);
+  return Boolean(domainName && !personalEmailDomains.has(domainName));
+};
+
+const splitHeadlineParts = (headline: string) =>
+  headline
+    .split(/(?:·|\||•|-{1,2})/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+const isUsefulRoleText = (value: string) => {
+  const normalized = normalize(value);
+  if (!normalized || normalized.length > 64) return false;
+  return ![
+    "participante de",
+    "organizador em",
+    "perfil profissional",
+    "contato importado",
+    "evento google",
+    "evento apple",
+    "google agenda"
+  ].some((phrase) => normalized.includes(phrase));
+};
+
+const inferFromKeywords = (text: string, map: Array<[RegExp, string]>) =>
+  map.find(([pattern]) => pattern.test(text))?.[1] ?? "";
+
+const signalText = (contact: Contact) =>
+  unique([
+    contact.name,
+    contact.headline,
+    contact.description,
+    contact.currentDemand,
+    contact.problemSolves,
+    contact.notes,
+    ...contact.tags,
+    ...Object.values(contact.customFields).flatMap((value) => Array.isArray(value) ? value.map(String) : String(value ?? ""))
+  ]).join(" ");
+
+const inferCompanySignal = (contact: Contact): InferenceSignal => {
+  const explicit = bestCustomField(contact, ["empresa", "company", "organization", "organizacao", "companhia", "org"]);
+  if (explicit) {
+    return {
+      value: explicit,
+      confidence: contact.source === "Google Contacts" ? 96 : 90,
+      reason: contact.source === "Google Contacts" ? "Organização importada pelo Google People API." : "Campo de empresa já existe no contato.",
+      source: contact.source === "Google Contacts" ? "google" : "campo"
+    };
+  }
+
+  const parts = splitHeadlineParts(contact.headline);
+  const fromHeadline = parts.find((part, index) => index > 0 && isUsefulRoleText(part) && !roleKeywordMap.some(([pattern]) => pattern.test(part)));
+  if (fromHeadline) {
+    return { value: fromHeadline, confidence: 72, reason: "Empresa provável lida no headline do contato.", source: "headline" };
+  }
+
+  if (isCorporateEmail(contact.emails[0])) {
+    return {
+      value: companyFromEmail(contact.emails[0]),
+      confidence: 68,
+      reason: "Empresa inferida pelo domínio corporativo do email.",
+      source: "email"
+    };
+  }
+
+  return EMPTY_SIGNAL;
+};
+
+const inferRoleSignal = (contact: Contact): InferenceSignal => {
+  const explicit = bestCustomField(contact, ["cargo", "title", "job_title", "position", "funcao", "papel"]);
+  if (explicit) {
+    return {
+      value: explicit,
+      confidence: contact.source === "Google Contacts" ? 96 : 90,
+      reason: contact.source === "Google Contacts" ? "Cargo importado pelo Google People API." : "Campo de cargo já existe no contato.",
+      source: contact.source === "Google Contacts" ? "google" : "campo"
+    };
+  }
+
+  const [firstHeadlinePart] = splitHeadlineParts(contact.headline);
+  const headlineIsAreaOnly = firstHeadlinePart
+    ? Boolean(inferFromKeywords(firstHeadlinePart, areaKeywordMap)) && !inferFromKeywords(firstHeadlinePart, roleKeywordMap)
+    : false;
+  if (firstHeadlinePart && isUsefulRoleText(firstHeadlinePart) && !headlineIsAreaOnly) {
+    return { value: firstHeadlinePart, confidence: 74, reason: "Cargo provável lido no headline do contato.", source: "headline" };
+  }
+
+  const keywordRole = inferFromKeywords(signalText(contact), roleKeywordMap);
+  if (keywordRole) return { value: keywordRole, confidence: 58, reason: "Cargo provável inferido por palavras-chave e tags.", source: "tags" };
+
+  return EMPTY_SIGNAL;
+};
+
+const inferAreaSignal = (contact: Contact): InferenceSignal => {
+  const explicit = bestCustomField(contact, ["area", "departamento", "department", "setor", "segmento", "industry"]);
+  if (explicit) return { value: explicit, confidence: 88, reason: "Área já existe nos campos do contato.", source: "campo" };
+
+  const area = inferFromKeywords(signalText(contact), areaKeywordMap);
+  if (area) return { value: area, confidence: 62, reason: "Área inferida por descrição, tags, cargo ou demanda.", source: "texto" };
+
+  return EMPTY_SIGNAL;
+};
+
+const getSeniorityTags = (text: string) => seniorityTagMap.flatMap(([pattern, tag]) => pattern.test(text) ? [tag] : []);
+
+const buildResearchLinks = (contact: Contact, role: string, company: string): EnrichmentResearchLink[] => {
+  const domain = getPrimaryEmailDomain(contact.emails[0]);
+  const baseParts = unique([contact.name, role, company].filter(Boolean));
+  const professionalQuery = unique([...baseParts, "LinkedIn", "site:linkedin.com/in"].filter(Boolean)).join(" ");
+  const companyQuery = unique([contact.name, company, role, domain].filter(Boolean)).join(" ");
+  return [
+    {
+      label: "Buscar LinkedIn público",
+      url: `https://www.google.com/search?q=${encodeURIComponent(professionalQuery || `${contact.name} LinkedIn site:linkedin.com/in`)}`,
+      detail: "Abre uma busca pública para o usuário confirmar o perfil antes de gravar."
+    },
+    {
+      label: "Confirmar cargo/empresa",
+      url: `https://www.google.com/search?q=${encodeURIComponent(companyQuery || contact.name)}`,
+      detail: "Busca evidências públicas combinando nome, empresa, cargo e domínio."
+    },
+    ...(domain && isCorporateEmail(contact.emails[0])
+      ? [{
+          label: "Abrir domínio corporativo",
+          url: `https://${domain}`,
+          detail: "Ajuda a validar se o email pertence a uma empresa real."
+        }]
+      : [])
+  ];
+};
+
+const buildMissingFields = (contact: Contact, role: string, company: string, linkedinUrl: string) =>
+  [
+    !contact.emails.length ? "email" : "",
+    !contact.phones.length ? "telefone" : "",
+    !contact.ddd && !extractDdd(contact.phones[0] ?? "") ? "DDD/região" : "",
+    !company ? "empresa" : "",
+    !role ? "cargo" : "",
+    !bestCustomField(contact, ["area", "departamento", "department", "setor", "segmento", "industry"]) ? "área" : "",
+    !linkedinUrl ? "LinkedIn revisado" : ""
+  ].filter(Boolean);
+
+const buildSuggestedUpdates = (
+  contact: Contact,
+  roleSignal: InferenceSignal,
+  companySignal: InferenceSignal,
+  areaSignal: InferenceSignal,
+  linkedinUrl: string,
+  researchUrl: string,
+  tags: string[]
+): EnrichmentSuggestedUpdate[] => {
+  const currentCompany = bestCustomField(contact, ["empresa", "company", "organization"]);
+  const currentRole = bestCustomField(contact, ["cargo", "title", "position", "funcao"]);
+  const currentArea = bestCustomField(contact, ["area", "departamento", "department", "setor"]);
+  const updates: EnrichmentSuggestedUpdate[] = [];
+
+  if (!currentCompany && companySignal.value) {
+    updates.push({
+      field: "empresa",
+      current: "vazio",
+      suggested: companySignal.value,
+      reason: companySignal.reason,
+      strength: companySignal.confidence >= 80 ? "forte" : "media"
+    });
+  }
+  if (!currentRole && roleSignal.value) {
+    updates.push({
+      field: "cargo",
+      current: "vazio",
+      suggested: roleSignal.value,
+      reason: roleSignal.reason,
+      strength: roleSignal.confidence >= 80 ? "forte" : "media"
+    });
+  }
+  if (!currentArea && areaSignal.value) {
+    updates.push({
+      field: "area",
+      current: "vazio",
+      suggested: areaSignal.value,
+      reason: areaSignal.reason,
+      strength: areaSignal.confidence >= 80 ? "forte" : "media"
+    });
+  }
+  if (!contact.headline && unique([roleSignal.value, companySignal.value, areaSignal.value]).length) {
+    updates.push({
+      field: "headline",
+      current: "vazio",
+      suggested: unique([roleSignal.value, companySignal.value, areaSignal.value]).join(" · "),
+      reason: "Headline montado com os melhores sinais profissionais disponíveis.",
+      strength: "media"
+    });
+  }
+  if (linkedinUrl) {
+    updates.push({
+      field: "linkedin",
+      current: "vazio",
+      suggested: linkedinUrl,
+      reason: "URL do LinkedIn já estava salva no contato.",
+      strength: "forte"
+    });
+  } else {
+    updates.push({
+      field: "linkedin",
+      current: "vazio",
+      suggested: researchUrl,
+      reason: "Pesquisa pública preparada para revisão humana.",
+      strength: "baixa"
+    });
+  }
+  if (tags.length) {
+    updates.push({
+      field: "tags",
+      current: `${contact.tags.length} tag(s)`,
+      suggested: tags.slice(0, 6).join(", "),
+      reason: "Tags geradas por cargo, empresa, área, DDD e senioridade.",
+      strength: "media"
+    });
+  }
+
+  return updates;
+};
+
 export const buildLinkedinResearchUrl = (contact: Contact) => {
   const company = bestCustomField(contact, ["empresa", "company"]) || companyFromEmail(contact.emails[0]);
   const role = bestCustomField(contact, ["cargo", "title", "position"]);
@@ -450,6 +738,218 @@ export const buildProfessionalEnrichmentSuggestions = (contacts: Contact[], limi
       const aNeedsWork = a.role && a.company && a.profileUrl ? 0 : 1;
       const bNeedsWork = b.role && b.company && b.profileUrl ? 0 : 1;
       return bNeedsWork - aNeedsWork || b.confidence - a.confidence;
+    })
+    .slice(0, limit);
+};
+
+export const buildActionableProfessionalEnrichmentSuggestions = (contacts: Contact[], limit = 8): EnrichmentSuggestion[] => {
+  const fuse = new Fuse(contacts, {
+    keys: ["name", "headline", "emails", "phones", "tags", "customFields.empresa", "customFields.cargo", "customFields.area"],
+    includeScore: true,
+    threshold: 0.34
+  });
+
+  return contacts
+    .map((contact) => {
+      const phone = contact.phones[0] ?? "";
+      const parsedPhone = phone ? parsePhoneNumberFromString(phone, "BR") : undefined;
+      const ddd = contact.ddd || extractDdd(phone);
+      const dddLocation = formatDddLocation(ddd);
+      const companySignal = inferCompanySignal(contact);
+      const roleSignal = inferRoleSignal(contact);
+      const areaSignal = inferAreaSignal(contact);
+      const company = companySignal.value;
+      const role = roleSignal.value;
+      const area = areaSignal.value;
+      const linkedinUrl = bestLinkedinUrl(contact);
+      const researchLinks = buildResearchLinks(contact, role, company);
+      const primaryResearchUrl = linkedinUrl || researchLinks[0]?.url || buildLinkedinResearchUrl(contact);
+      const emailName = contact.emails[0]?.split("@")[0]?.replace(/[._-]+/g, " ") ?? "";
+      const normalizedName = normalize(contact.name);
+      const normalizedEmailName = normalize(emailName);
+      const nameDistance = normalizedEmailName ? distance(normalizedName, normalizedEmailName) : normalizedName.length;
+      const nameSimilarity = normalizedEmailName
+        ? Math.max(0, 1 - nameDistance / Math.max(normalizedName.length, normalizedEmailName.length, 1))
+        : 0;
+      const peerSearchTerm = company || area || role;
+      const peerMatches = peerSearchTerm
+        ? fuse.search(peerSearchTerm, { limit: 4 }).filter((match) => match.item.id !== contact.id && (match.score ?? 1) < 0.42)
+        : [];
+      const provider = contact.source === "Google Contacts" && (companySignal.source === "google" || roleSignal.source === "google")
+        ? "google-people"
+        : linkedinUrl
+          ? "linkedin-official"
+          : company || role
+            ? "people-data-labs"
+            : phone
+              ? "phone-validation"
+              : "web-search";
+      const providerLabel = contactEnrichmentApiCatalog.find((item) => item.id === provider)?.name ?? "Busca pública assistida";
+      const providerDefinition = contactEnrichmentApiCatalog.find((item) => item.id === provider);
+      const professionalText = signalText(contact);
+      const seniorityTags = getSeniorityTags(professionalText);
+      const missingFields = buildMissingFields(contact, role, company, linkedinUrl);
+      const tags = unique([
+        "revisar LinkedIn",
+        company,
+        role,
+        area,
+        ...seniorityTags,
+        ddd ? `DDD ${ddd}` : "",
+        getDddLocation(ddd)?.state ?? "",
+        getDddLocation(ddd)?.region ?? "",
+        companySignal.source === "email" ? "empresa inferida por email" : "",
+        roleSignal.source === "google" || companySignal.source === "google" ? "Google People enriquecido" : "",
+        "enriquecimento profissional"
+      ]);
+      const updates = buildSuggestedUpdates(contact, roleSignal, companySignal, areaSignal, linkedinUrl, primaryResearchUrl, tags);
+      const qualityScore = Math.min(
+        100,
+        Math.round(
+          (contact.name ? 10 : 0) +
+            (contact.emails.length ? 12 : 0) +
+            (contact.phones.length ? 12 : 0) +
+            (ddd ? 8 : 0) +
+            (company ? 16 : 0) +
+            (role ? 16 : 0) +
+            (area ? 8 : 0) +
+            (linkedinUrl ? 10 : 0) +
+            (contact.description ? 4 : 0) +
+            (contact.currentDemand || contact.problemSolves ? 4 : 0)
+        )
+      );
+      const runtimeSignals: EnrichmentRuntimeSignal[] = [
+        {
+          source: "library",
+          name: "libphonenumber-js",
+          status: "rodando",
+          value: phone
+            ? parsedPhone?.isValid()
+              ? parsedPhone.formatInternational()
+              : "telefone a validar"
+            : "sem telefone",
+          detail: ddd ? `DDD ${ddd} usado como sinal regional.` : "Contato sem DDD extraído."
+        },
+        {
+          source: "library",
+          name: "tldts",
+          status: "rodando",
+          value: companySignal.source === "email" ? company : company || "sem domínio corporativo",
+          detail: contact.emails[0]
+            ? `${isCorporateEmail(contact.emails[0]) ? "Domínio corporativo" : "Domínio pessoal"} analisado: ${contact.emails[0]}.`
+            : "Contato sem email para inferir domínio."
+        },
+        {
+          source: "library",
+          name: "Fuse.js",
+          status: "rodando",
+          value: `${peerMatches.length} similar(es)`,
+          detail: peerMatches.length
+            ? peerMatches.map((match) => match.item.name).slice(0, 3).join(", ")
+            : "Nenhum contato parecido o suficiente na base atual para validar contexto."
+        },
+        {
+          source: "library",
+          name: "fastest-levenshtein",
+          status: "rodando",
+          value: `${Math.round(nameSimilarity * 100)}% nome/email`,
+          detail: emailName ? `Comparou "${contact.name}" com "${emailName}".` : "Sem email para comparar nome."
+        },
+        {
+          source: "library",
+          name: "Zod",
+          status: "rodando",
+          value: "schema validado",
+          detail: "A sugestão só aparece depois de validar campos obrigatórios, score e evidências."
+        },
+        ...(contact.source === "Google Contacts" || contact.source === "Google Calendar"
+          ? [{
+              source: "api" as const,
+              name: contact.source === "Google Contacts" ? "Google People API" : "Google Calendar API",
+              status: "ativo" as const,
+              value: contact.source,
+              detail: contact.source === "Google Contacts"
+                ? `OAuth autorizado. ${company || role ? "Organização/cargo aproveitados quando vieram salvos no Google." : "O Google não retornou cargo/empresa para este contato."}`
+                : "Contato veio de evento autorizado pela Agenda Google."
+            }]
+          : []),
+        {
+          source: "api",
+          name: providerDefinition?.name ?? providerLabel,
+          status: providerDefinition ? providerStatusLabel[providerDefinition.status] : "preparado",
+          value: providerDefinition?.status === "depende_chave" ? "adapter pronto; falta chave/backend" : "pronto para revisão",
+          detail: providerDefinition?.limitation ?? "Provedor preparado para retornar evidências externas."
+        }
+      ];
+      const evidence = unique([
+        `Nome lido do contato: ${contact.name}`,
+        phone ? `Telefone ${parsedPhone?.isValid() ? "válido" : "a validar"} com ${dddLocation}` : "",
+        contact.emails[0] ? `Email analisado: ${contact.emails[0]}` : "",
+        company ? `${companySignal.reason} Resultado: ${company}.` : "Empresa ainda não identificada.",
+        role ? `${roleSignal.reason} Resultado: ${role}.` : "Cargo ainda não identificado.",
+        area ? `${areaSignal.reason} Resultado: ${area}.` : "",
+        linkedinUrl ? "LinkedIn já informado no contato." : "Sem LinkedIn salvo; abrir busca pública para revisão.",
+        peerMatches.length ? `${peerMatches.length} contato(s) parecido(s) na base ajudam a validar contexto.` : "",
+        missingFields.length ? `Pendências: ${missingFields.join(", ")}.` : "Contato com dados profissionais bem qualificados."
+      ]);
+      const confidence = Math.min(
+        96,
+        Math.round(
+          22 +
+            (parsedPhone?.isValid() ? 12 : phone ? 5 : 0) +
+            (ddd ? 8 : 0) +
+            (contact.emails[0] ? 8 : 0) +
+            Math.round(companySignal.confidence * 0.16) +
+            Math.round(roleSignal.confidence * 0.16) +
+            Math.round(areaSignal.confidence * 0.08) +
+            (linkedinUrl ? 18 : 0) +
+            (nameSimilarity > 0.35 ? 8 : 0) +
+            Math.min(peerMatches.length * 3, 6)
+        )
+      );
+      const nextActions = unique([
+        updates.some((update) => update.strength === "forte" || update.strength === "media")
+          ? "Aplicar sinais seguros para preencher empresa, cargo, área e tags sem sobrescrever dados existentes."
+          : "",
+        !linkedinUrl ? "Abrir busca pública e confirmar o LinkedIn antes de salvar a URL no contato." : "LinkedIn já existe; revisar se ainda está atual.",
+        missingFields.includes("cargo") || missingFields.includes("empresa")
+          ? "Se cargo/empresa não vieram do Google, validar por email corporativo, site da empresa ou provedor externo com chave."
+          : "",
+        providerDefinition?.status === "depende_chave"
+          ? "Para consulta automática externa real, conectar este provedor em backend/Edge Function com LGPD e logs de consentimento."
+          : ""
+      ]);
+      const parsedSuggestion = enrichmentSuggestionSchema.parse({
+        suggestedName: contact.name,
+        headline: contact.headline || unique([role, company, area]).join(" · ") || "Perfil profissional a revisar",
+        role,
+        company,
+        location: dddLocation,
+        profileUrl: primaryResearchUrl,
+        confidence,
+        evidence,
+        tags
+      });
+
+      return {
+        id: `enrich:${contact.id}`,
+        contactId: contact.id,
+        provider,
+        providerLabel,
+        ...parsedSuggestion,
+        missingFields,
+        nextActions,
+        qualityScore,
+        researchLinks,
+        updates,
+        runtimeSignals,
+        status: confidence >= 72 ? "suggested" : "needs_review"
+      } satisfies EnrichmentSuggestion;
+    })
+    .sort((a, b) => {
+      const aActionable = (a.updates ?? []).filter((update) => update.strength !== "baixa").length;
+      const bActionable = (b.updates ?? []).filter((update) => update.strength !== "baixa").length;
+      return bActionable - aActionable || b.confidence - a.confidence || (a.qualityScore ?? 0) - (b.qualityScore ?? 0);
     })
     .slice(0, limit);
 };
@@ -886,6 +1386,7 @@ export const parseVcardContacts = (vcard: string): Partial<Contact>[] => {
     const title = findValue(["TITLE:"]);
     const note = findValue(["NOTE:"]);
     const ddd = extractDdd(phones[0] ?? "");
+    const dddLocation = getDddLocation(ddd);
 
     return {
       name: name || "Contato Apple sem nome",
@@ -897,7 +1398,16 @@ export const parseVcardContacts = (vcard: string): Partial<Contact>[] => {
       tags: unique(["Apple Contacts", ddd ? `DDD ${ddd}` : "", org ? "empresa" : ""]),
       currentDemand: "",
       problemSolves: "",
-      source: "Apple Contacts"
+      source: "Apple Contacts",
+      customFields: {
+        empresa: org,
+        cargo: title,
+        ...(ddd ? {
+          localidadeDdd: formatDddLocation(ddd),
+          estadoDdd: dddLocation?.state ?? "",
+          regiaoDdd: dddLocation?.region ?? ""
+        } : {})
+      }
     };
   });
 };
