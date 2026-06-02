@@ -1261,6 +1261,8 @@ export const getGraphFilterTags = (contacts: Contact[], groups: GrafyState["grou
   return unique([...suggested, ...remaining]);
 };
 
+const mergeSuggestionId = (firstId: string, secondId: string) => [firstId, secondId].sort().join("::");
+
 export const getMergeSuggestions = (contacts: Contact[]): MergeSuggestion[] => {
   const suggestions: MergeSuggestion[] = [];
   for (let i = 0; i < contacts.length; i += 1) {
@@ -1275,7 +1277,7 @@ export const getMergeSuggestions = (contacts: Contact[]): MergeSuggestion[] => {
       const samePhone = phonesA.some((phone) => phone && phonesB.includes(phone));
       if (sameEmail || samePhone) {
         suggestions.push({
-          id: `${first.id}_${second.id}`,
+          id: mergeSuggestionId(first.id, second.id),
           contactA: first,
           contactB: second,
           reason: sameEmail ? "email normalizado igual" : "telefone normalizado igual",
@@ -1828,7 +1830,7 @@ export const makeAssistantAnswer = (prompt: string, state: GrafyState) => {
   const normalized = normalize(prompt);
   const duplicateWords = ["duplicado", "duplicados", "merge"];
   if (duplicateWords.some((word) => normalized.includes(word))) {
-    const suggestions = getMergeSuggestions(state.contacts);
+    const suggestions = getMergeSuggestions(state.contacts).filter((suggestion) => state.mergeDecisions?.[suggestion.id] !== "ignored");
     return {
       content:
         suggestions.length > 0

@@ -559,6 +559,7 @@ export const initialState: GrafyState = {
     contactIds: []
   })),
   customFields: seedCustomFields,
+  mergeDecisions: {},
   chatMessages: [
     {
       id: "msg_welcome",

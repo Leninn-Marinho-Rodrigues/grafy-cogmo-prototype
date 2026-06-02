@@ -8,7 +8,8 @@ export type ViewKey =
   | "public"
   | "chat"
   | "profile"
-  | "settings";
+  | "settings"
+  | "docs";
 
 export type LinkKind = "whatsapp" | "instagram" | "linkedin" | "url";
 
@@ -114,6 +115,7 @@ export interface GrafyState {
   groups: Group[];
   customFields: CustomField[];
   chatMessages: ChatMessage[];
+  mergeDecisions: Record<string, "reviewed" | "ignored">;
   completedOnboarding: boolean;
 }
 

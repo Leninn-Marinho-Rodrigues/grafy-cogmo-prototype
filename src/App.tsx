@@ -14,6 +14,7 @@ import {
   Database,
   Eye,
   EyeOff,
+  FileText,
   Filter,
   Fingerprint,
   Globe2,
@@ -93,7 +94,8 @@ const navItems: Array<{ key: ViewKey; label: string; icon: typeof Home }> = [
   { key: "public", label: "Rede", icon: Globe2 },
   { key: "chat", label: "Chat", icon: MessageSquare },
   { key: "profile", label: "Perfil", icon: UserRound },
-  { key: "settings", label: "Ajustes", icon: Settings }
+  { key: "settings", label: "Ajustes", icon: Settings },
+  { key: "docs", label: "Docs API", icon: FileText }
 ];
 
 const linkLabels: Record<LinkKind, string> = {
@@ -172,6 +174,38 @@ const getLandingModeFromHash = (): LandingMode => {
   if (hash.includes("hubs")) return "hub";
   if (hash.includes("empresarios")) return "personal";
   return "choice";
+};
+
+const isDocsHash = () => window.location.hash.toLowerCase().includes("docs");
+
+const viewHashMap: Record<ViewKey, string> = {
+  dashboard: "#/app",
+  contacts: "#/contacts",
+  import: "#/import",
+  integrations: "#/integrations",
+  graph: "#/graph",
+  groups: "#/groups",
+  public: "#/public-network",
+  chat: "#/chat",
+  profile: "#/profile",
+  settings: "#/settings",
+  docs: "#/docs"
+};
+
+const getViewFromHash = (): ViewKey | null => {
+  const hash = window.location.hash.toLowerCase();
+  if (hash.includes("docs")) return "docs";
+  if (hash.includes("contacts") || hash.includes("contatos")) return "contacts";
+  if (hash.includes("import")) return "import";
+  if (hash.includes("integrations") || hash.includes("conectores")) return "integrations";
+  if (hash.includes("graph") || hash.includes("grafo")) return "graph";
+  if (hash.includes("groups") || hash.includes("grupos")) return "groups";
+  if (hash.includes("public") || hash.includes("rede")) return "public";
+  if (hash.includes("chat")) return "chat";
+  if (hash.includes("profile") || hash.includes("perfil")) return "profile";
+  if (hash.includes("settings") || hash.includes("ajustes")) return "settings";
+  if (hash.includes("app") || hash.includes("dashboard")) return "dashboard";
+  return null;
 };
 
 const getAudienceFromLandingMode = (mode: LandingMode): AudienceMode =>
@@ -875,6 +909,23 @@ function useStoredState<T>(key: string, fallback: T) {
   return [value, setValue] as const;
 }
 
+function useOnlineStatus() {
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine));
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  return isOnline;
+}
+
 function hydrateState(state: GrafyState): GrafyState {
   const needsDemoDataRefresh = state.schemaVersion !== APP_SCHEMA_VERSION;
   const hydratedContacts = (state.contacts ?? []).filter((contact) => !LEGACY_DEMO_CONTACT_IDS.has(contact.id));
@@ -925,7 +976,8 @@ function hydrateState(state: GrafyState): GrafyState {
       ...initialState.customFields,
       ...(state.customFields ?? []).filter((field) => !initialState.customFields.some((seedField) => seedField.id === field.id))
     ],
-    chatMessages: state.chatMessages ?? initialState.chatMessages
+    chatMessages: state.chatMessages ?? initialState.chatMessages,
+    mergeDecisions: state.mergeDecisions ?? {}
   };
 }
 
@@ -1089,7 +1141,8 @@ function NetworkBackdrop({ className = "", density = 72, interactive = true }: {
 function App() {
   const [state, setState] = useStoredState<GrafyState>(STORAGE_KEY, initialState);
   const [session, setSession] = useStoredState<{ email: string } | null>(SESSION_KEY, null);
-  const [view, setView] = useState<ViewKey>("dashboard");
+  const [view, setViewState] = useState<ViewKey>(() => getViewFromHash() ?? "dashboard");
+  const [docsRouteOpen, setDocsRouteOpen] = useState(() => isDocsHash());
   const [selectedContactId, setSelectedContactId] = useState(state.contacts[0]?.id ?? "");
 
   const selectedContact = state.contacts.find((contact) => contact.id === selectedContactId) ?? state.contacts[0];
@@ -1101,6 +1154,26 @@ function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [session, view]);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const nextView = getViewFromHash();
+      const shouldOpenDocs = nextView === "docs";
+      setDocsRouteOpen(shouldOpenDocs);
+      if (nextView) setViewState(nextView);
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  const setView = (nextView: ViewKey) => {
+    setViewState(nextView);
+    const nextHash = viewHashMap[nextView];
+    if (nextHash && window.location.hash !== nextHash) {
+      window.history.replaceState(null, "", nextHash);
+    }
+    setDocsRouteOpen(nextView === "docs");
+  };
 
   const addContact = (contact: Contact) => {
     setState((current) => ({
@@ -1162,10 +1235,25 @@ function App() {
         groups: current.groups.map((group) => ({
           ...group,
           contactIds: unique(group.contactIds.map((contactId) => (contactId === duplicateId ? primaryId : contactId)))
-        }))
+        })),
+        mergeDecisions: Object.fromEntries(
+          Object.entries(current.mergeDecisions ?? {}).filter(([suggestionId]) => {
+            const pairIds = suggestionId.split("::");
+            return !pairIds.includes(primaryId) && !pairIds.includes(duplicateId);
+          })
+        )
       };
     });
     setSelectedContactId(primaryId);
+  };
+
+  const updateMergeDecision = (suggestionId: string, status?: GrafyState["mergeDecisions"][string]) => {
+    setState((current) => {
+      const mergeDecisions = { ...(current.mergeDecisions ?? {}) };
+      if (status) mergeDecisions[suggestionId] = status;
+      else delete mergeDecisions[suggestionId];
+      return { ...current, mergeDecisions };
+    });
   };
 
   const addGroup = (name: string, description: string, tags: string[] = [], color = groupColorOptions[0]) => {
@@ -1220,6 +1308,13 @@ function App() {
     setView(targetView);
   };
 
+  if (!session && docsRouteOpen) {
+    return <ApiDocsScreen publicMode onBack={() => {
+      window.history.replaceState(null, "", "#/");
+      setDocsRouteOpen(false);
+    }} />;
+  }
+
   if (!session) {
     return <AuthScreen onLogin={startSession} />;
   }
@@ -1237,6 +1332,7 @@ function App() {
       updateContact={updateContact}
       deleteContact={deleteContact}
       approveMerge={approveMerge}
+      updateMergeDecision={updateMergeDecision}
       addGroup={addGroup}
       updateGroup={updateGroup}
       addContactToGroup={addContactToGroup}
@@ -1259,6 +1355,7 @@ interface AppShellProps {
   updateContact: (id: string, patch: Partial<Contact>) => void;
   deleteContact: (id: string) => void;
   approveMerge: (primaryId: string, duplicateId: string) => void;
+  updateMergeDecision: (suggestionId: string, status?: GrafyState["mergeDecisions"][string]) => void;
   addGroup: (name: string, description: string, tags?: string[], color?: string) => void;
   updateGroup: (id: string, patch: Partial<GrafyState["groups"][number]>) => void;
   addContactToGroup: (groupId: string, contactId: string) => void;
@@ -1269,8 +1366,9 @@ interface AppShellProps {
 
 function AppShell(props: AppShellProps) {
   const { state, view, setView, onLogout } = props;
+  const isOnline = useOnlineStatus();
   const currentLabel = navItems.find((item) => item.key === view)?.label ?? "Grafy";
-  const duplicateCount = getMergeSuggestions(state.contacts).length;
+  const duplicateCount = getMergeSuggestions(state.contacts).filter((suggestion) => !(state.mergeDecisions ?? {})[suggestion.id]).length;
 
   return (
     <div className="app">
@@ -1314,6 +1412,10 @@ function AppShell(props: AppShellProps) {
             <h1>{currentLabel}</h1>
           </div>
           <div className="topbar-actions">
+            <span className={`sync-pill ${isOnline ? "online" : "offline"}`}>
+              <CircleDot size={12} />
+              {isOnline ? "online · salvo localmente" : "offline · lendo cache"}
+            </span>
             <button className="icon-button" onClick={() => setView("import")} title="Importar contatos">
               <Upload size={18} />
             </button>
@@ -1341,6 +1443,7 @@ function AppShell(props: AppShellProps) {
           {view === "chat" && <ChatView {...props} />}
           {view === "profile" && <ProfileView {...props} />}
           {view === "settings" && <SettingsView {...props} />}
+          {view === "docs" && <ApiDocsScreen onBack={() => setView("settings")} />}
         </section>
       </main>
 
@@ -2806,11 +2909,15 @@ function SmartFilterPanel({
   );
 }
 
-function ContactsView({ state, selectedContact, setSelectedContactId, addContact, updateContact, deleteContact, approveMerge }: AppShellProps) {
+function ContactsView({ state, selectedContact, setSelectedContactId, addContact, updateContact, deleteContact, approveMerge, updateMergeDecision }: AppShellProps) {
   const [query, setQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const suggestions = getMergeSuggestions(state.contacts);
+  const mergeDecisions = state.mergeDecisions ?? {};
+  const visibleSuggestions = suggestions.filter((suggestion) => mergeDecisions[suggestion.id] !== "ignored");
+  const pendingSuggestions = visibleSuggestions.filter((suggestion) => mergeDecisions[suggestion.id] !== "reviewed");
+  const reviewedSuggestions = visibleSuggestions.filter((suggestion) => mergeDecisions[suggestion.id] === "reviewed");
   const toggleFilter = (tag: string) => {
     setActiveFilters((current) =>
       current.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag))
@@ -2855,13 +2962,44 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
           {locationSummary.length > 0 && <small>Regiões em foco: {locationSummary.join(" · ")}</small>}
         </div>
 
-        {suggestions.length > 0 && (
+        {visibleSuggestions.length > 0 && (
           <div className="alert-card">
             <ShieldCheck size={18} />
             <div>
-              <strong>{suggestions.length} possível duplicado</strong>
-              <p>Revise antes de mesclar. O Grafy nunca faz merge automático.</p>
+              <strong>{pendingSuggestions.length} pendente(s) de merge</strong>
+              <p>{reviewedSuggestions.length} revisado(s). O Grafy nunca faz merge automático.</p>
             </div>
+          </div>
+        )}
+
+        {visibleSuggestions.length > 0 && (
+          <div className="merge-review-panel">
+            <div className="merge-review-head">
+              <strong>Fila de duplicados</strong>
+              <span>{pendingSuggestions.length} para decidir</span>
+            </div>
+            {[...pendingSuggestions, ...reviewedSuggestions].slice(0, 4).map((suggestion) => {
+              const decision = mergeDecisions[suggestion.id];
+              return (
+                <article key={suggestion.id} className={`merge-queue-item ${decision === "reviewed" ? "reviewed" : ""}`}>
+                  <button type="button" onClick={() => setSelectedContactId(suggestion.contactA.id)}>
+                    <span className="avatar small">{initials(suggestion.contactA.name)}</span>
+                    <span>
+                      <strong>{suggestion.contactA.name}</strong>
+                      <small>{suggestion.reason} com {suggestion.contactB.name}</small>
+                    </span>
+                  </button>
+                  <div>
+                    <button className="secondary-button compact" type="button" onClick={() => updateMergeDecision(suggestion.id, "reviewed")}>
+                      Revisado
+                    </button>
+                    <button className="secondary-button compact ghost" type="button" onClick={() => updateMergeDecision(suggestion.id, "ignored")}>
+                      Ignorar
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         )}
 
@@ -2909,10 +3047,13 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
         ) : selectedContact ? (
           <ContactDetail
             contact={selectedContact}
-            suggestions={suggestions.filter((suggestion) => suggestion.contactA.id === selectedContact.id || suggestion.contactB.id === selectedContact.id)}
+            suggestions={visibleSuggestions.filter((suggestion) => suggestion.contactA.id === selectedContact.id || suggestion.contactB.id === selectedContact.id)}
+            mergeDecisions={mergeDecisions}
+            customFields={state.customFields}
             updateContact={updateContact}
             deleteContact={deleteContact}
             approveMerge={approveMerge}
+            updateMergeDecision={updateMergeDecision}
           />
         ) : (
           <EmptyState title="Selecione um contato" body="A lista está pronta para busca, filtros, detalhes e revisão de duplicados." />
@@ -2925,15 +3066,21 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
 function ContactDetail({
   contact,
   suggestions,
+  mergeDecisions,
+  customFields,
   updateContact,
   deleteContact,
-  approveMerge
+  approveMerge,
+  updateMergeDecision
 }: {
   contact: Contact;
   suggestions: ReturnType<typeof getMergeSuggestions>;
+  mergeDecisions: GrafyState["mergeDecisions"];
+  customFields: CustomField[];
   updateContact: (id: string, patch: Partial<Contact>) => void;
   deleteContact: (id: string) => void;
   approveMerge: (primaryId: string, duplicateId: string) => void;
+  updateMergeDecision: (suggestionId: string, status?: GrafyState["mergeDecisions"][string]) => void;
 }) {
   const [draftTags, setDraftTags] = useState(contact.tags.join(", "));
 
@@ -2944,6 +3091,15 @@ function ContactDetail({
   const customEntries = Object.entries(contact.customFields).filter(([, value]) =>
     Array.isArray(value) ? value.length > 0 : value !== "" && value !== undefined && value !== null
   );
+  const applicableCustomFields = customFields.filter((field) => field.scope === "user" || !field.groupId || contact.groupIds.includes(field.groupId));
+  const updateCustomFieldValue = (field: CustomField, value: string | number | boolean | string[]) => {
+    updateContact(contact.id, {
+      customFields: {
+        ...contact.customFields,
+        [field.key]: value
+      }
+    });
+  };
 
   return (
     <div className="contact-detail">
@@ -2962,16 +3118,48 @@ function ContactDetail({
 
       {suggestions.map((suggestion) => {
         const other = suggestion.contactA.id === contact.id ? suggestion.contactB : suggestion.contactA;
+        const decision = mergeDecisions[suggestion.id];
         return (
-          <div key={suggestion.id} className="merge-card">
-            <div>
-              <strong>Possível duplicado: {other.name}</strong>
-              <p>{suggestion.reason} com {Math.round(suggestion.confidence * 100)}% de confiança.</p>
+          <div key={suggestion.id} className={`merge-card ${decision === "reviewed" ? "reviewed" : ""}`}>
+            <div className="merge-card-head">
+              <div>
+                <strong>Possível duplicado: {other.name}</strong>
+                <p>{suggestion.reason} com {Math.round(suggestion.confidence * 100)}% de confiança.</p>
+              </div>
+              <span className={`merge-status ${decision === "reviewed" ? "reviewed" : "pending"}`}>
+                {decision === "reviewed" ? "revisado" : "pendente"}
+              </span>
             </div>
-            <button className="secondary-button compact" onClick={() => approveMerge(contact.id, other.id)}>
-              <Check size={16} />
-              Mesclar
-            </button>
+            <div className="merge-compare-grid">
+              {[contact, other].map((item, index) => (
+                <div key={item.id}>
+                  <small>{index === 0 ? "Contato aberto" : "Possível duplicado"}</small>
+                  <strong>{item.name}</strong>
+                  <span>{item.emails[0] || "sem email"} · {item.phones[0] || "sem telefone"}</span>
+                  <em>{item.source} · {formatDddShortLocation(item.ddd)}</em>
+                  <p>{item.tags.slice(0, 4).join(", ") || "sem tags"}</p>
+                </div>
+              ))}
+            </div>
+            <div className="merge-actions">
+              <button className="primary-button compact" onClick={() => approveMerge(contact.id, other.id)}>
+                <Check size={16} />
+                Mesclar com aprovação
+              </button>
+              <button className="secondary-button compact" onClick={() => updateMergeDecision(suggestion.id, "reviewed")}>
+                <ShieldCheck size={16} />
+                Marcar revisado
+              </button>
+              <button className="secondary-button compact ghost" onClick={() => updateMergeDecision(suggestion.id, "ignored")}>
+                <X size={16} />
+                Ignorar sugestão
+              </button>
+              {decision && (
+                <button className="secondary-button compact ghost" onClick={() => updateMergeDecision(suggestion.id)}>
+                  Reabrir
+                </button>
+              )}
+            </div>
           </div>
         );
       })}
@@ -2998,6 +3186,72 @@ function ContactDetail({
           />
         </label>
       </div>
+
+      {applicableCustomFields.length > 0 && (
+        <div className="custom-field-editor">
+          <div>
+            <h3>Campos personalizados</h3>
+            <p>Campos criados em Ajustes aparecem aqui e entram nos filtros, busca e grafo quando preenchidos.</p>
+          </div>
+          <div className="custom-field-editor-grid">
+            {applicableCustomFields.map((field) => {
+              const rawValue = contact.customFields[field.key];
+              const value = Array.isArray(rawValue) ? rawValue.join(", ") : String(rawValue ?? "");
+              if (field.type === "checkbox") {
+                return (
+                  <label key={field.id} className="custom-field-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(rawValue)}
+                      onChange={(event) => updateCustomFieldValue(field, event.target.checked)}
+                    />
+                    <span>{field.name}</span>
+                  </label>
+                );
+              }
+              if (field.type === "select" && field.options.length > 0) {
+                return (
+                  <label key={field.id}>
+                    {field.name}
+                    <select value={value} onChange={(event) => updateCustomFieldValue(field, event.target.value)}>
+                      <option value="">Não informado</option>
+                      {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                );
+              }
+              if (field.type === "long_text") {
+                return (
+                  <label key={field.id}>
+                    {field.name}
+                    <textarea value={value} onChange={(event) => updateCustomFieldValue(field, event.target.value)} />
+                  </label>
+                );
+              }
+              return (
+                <label key={field.id}>
+                  {field.name}
+                  <input
+                    type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
+                    value={value}
+                    onChange={(event) =>
+                      updateCustomFieldValue(
+                        field,
+                        field.type === "number"
+                          ? event.target.value === "" ? "" : Number(event.target.value)
+                          : field.type === "multiselect"
+                            ? splitList(event.target.value)
+                            : event.target.value
+                      )
+                    }
+                    placeholder={field.type === "multiselect" ? "Separe valores por vírgula" : undefined}
+                  />
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="info-grid">
         <Info icon={Mail} label="Emails" value={contact.emails.join(", ") || "Sem email"} />
@@ -4746,9 +5000,10 @@ function ProfileView({ state, setState }: AppShellProps) {
   );
 }
 
-function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail }: AppShellProps) {
+function SettingsView({ state, setState, setView, addCustomField, onLogout, sessionEmail }: AppShellProps) {
   const [name, setName] = useState("");
   const [type, setType] = useState<CustomField["type"]>("short_text");
+  const [optionsText, setOptionsText] = useState("");
   const [connectorStatus, setConnectorStatus] = useState("Escolha uma integração para ver o caminho seguro de conexão.");
   const { googleClientConfigured, appleClientConfigured } = useOAuthRuntimeConfig();
   const connectorSettings = [
@@ -4853,10 +5108,11 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
       name,
       key: name.toLowerCase().replace(/\s+/g, "_"),
       type,
-      options: [],
+      options: splitList(optionsText),
       isFilterable: true
     });
     setName("");
+    setOptionsText("");
   };
 
   const resetPrototypeAccount = () => {
@@ -4883,6 +5139,11 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
             <option value="multiselect">Multiselect</option>
             <option value="date">Data</option>
           </select>
+          <input
+            value={optionsText}
+            onChange={(event) => setOptionsText(event.target.value)}
+            placeholder="Opções para dropdown/multiselect"
+          />
           <button className="primary-button" type="submit">
             <Plus size={17} />
             Adicionar
@@ -4895,6 +5156,7 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
               <div>
                 <strong>{field.name}</strong>
                 <span>{field.type} · {field.scope}</span>
+                {field.options.length > 0 && <small>{field.options.join(", ")}</small>}
               </div>
             </div>
           ))}
@@ -4960,6 +5222,13 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
           <Info icon={Network} label="Grafo" value="Adapter visual pronto para evoluir para Sigma.js" />
           <Info icon={Bot} label="Copiloto" value="Busca estruturada hoje, tools IA na próxima fase" />
         </div>
+        <button className="secondary-button settings-docs-button" type="button" onClick={() => {
+          window.history.replaceState(null, "", "#/docs");
+          setView("docs");
+        }}>
+          <FileText size={17} />
+          Abrir contrato OpenAPI
+        </button>
       </section>
 
       <section className="settings-panel danger-zone">
@@ -4972,6 +5241,98 @@ function SettingsView({ state, setState, addCustomField, onLogout, sessionEmail 
           <Trash2 size={17} />
           Apagar conta de teste
         </button>
+      </section>
+    </div>
+  );
+}
+
+function ApiDocsScreen({ publicMode = false, onBack }: { publicMode?: boolean; onBack: () => void }) {
+  const endpoints = [
+    ["GET", "/api/health", "Público", "Status do serviço, versão do contrato e disponibilidade."],
+    ["GET", "/api/contacts", "Usuário", "Lista contatos privados do usuário autenticado com filtros por tag, DDD e texto."],
+    ["POST", "/api/contacts", "Usuário", "Cria contato manual com emails, telefones, tags, links, demanda e problema resolvido."],
+    ["GET", "/api/contacts/{id}", "Usuário", "Abre detalhe do contato respeitando dono, grupo ou vínculo público autorizado."],
+    ["PATCH", "/api/contacts/{id}", "Usuário", "Atualiza campos editáveis, tags, links e custom fields com auditoria."],
+    ["GET", "/api/groups", "Membro", "Lista grupos em que o usuário é membro ativo."],
+    ["POST", "/api/groups", "Admin", "Cria grupo compartilhado, tags, cor e regras iniciais de acesso."],
+    ["GET", "/api/graph", "Usuário/Membro", "Retorna nós e arestas filtrados por escopo, grupo, DDD, tag e tipo."],
+    ["POST", "/api/import/csv", "Usuário/Admin", "Cria job de importação com preview, erros por linha e duplicados sugeridos."],
+    ["POST", "/api/import/google", "Usuário", "Importa People API autorizada via backend/Edge Function, sem expor token no cliente."],
+    ["GET", "/api/merge-suggestions", "Usuário", "Lista sugestões pendentes, revisadas e ignoradas por email/telefone."],
+    ["PATCH", "/api/merge-suggestions/{id}", "Usuário", "Marca sugestão como aprovada, revisada ou ignorada; merge exige confirmação."]
+  ] as const;
+  const openApiPreview = `openapi: 3.1.0
+info:
+  title: Grafy Network Intelligence API
+  version: 0.1.0-mvp
+servers:
+  - url: https://api.grafy.app
+paths:
+  /api/contacts:
+    get:
+      summary: Lista contatos privados do usuário
+    post:
+      summary: Cria contato com tags, DDD e campos customizados
+  /api/import/google:
+    post:
+      summary: Importa Google Contacts autorizado via Edge Function
+  /api/graph:
+    get:
+      summary: Retorna subgrafo filtrado por contexto`;
+
+  return (
+    <div className={publicMode ? "api-docs-page public-docs-page" : "screen api-docs-page"}>
+      {publicMode && <NetworkBackdrop className="auth-live-network" density={52} />}
+      <section className="api-docs-hero">
+        <button className="secondary-button compact" onClick={onBack}>
+          <ChevronRight size={16} />
+          {publicMode ? "Voltar para entrada" : "Voltar aos ajustes"}
+        </button>
+        <div>
+          <span className="context public">contrato de integração</span>
+          <h1>Docs API do Grafy</h1>
+          <p>
+            Esta tela transforma o requisito OpenAPI/Swagger do PRD em contrato navegável. No protótipo, os dados ainda ficam
+            no navegador; em produção, estes endpoints devem ser implementados com Supabase, Edge Functions e RLS.
+          </p>
+        </div>
+      </section>
+
+      <section className="api-docs-grid">
+        <article className="api-contract-card">
+          <h2>Endpoints MVP</h2>
+          <div className="endpoint-table">
+            {endpoints.map(([method, path, auth, description]) => (
+              <div key={`${method}-${path}`} className="endpoint-row">
+                <span className={`method-pill method-${method.toLowerCase()}`}>{method}</span>
+                <strong>{path}</strong>
+                <em>{auth}</em>
+                <p>{description}</p>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <aside className="api-contract-card api-contract-side">
+          <h2>Critérios de produção</h2>
+          <div className="workflow-steps compact">
+            {[
+              ["Auth real", "Supabase Auth, Google e magic link com usuário dono."],
+              ["RLS", "Contato privado só aparece para o dono; grupo só para membro ativo."],
+              ["Imports", "Google/CSV criam jobs, preview e duplicados antes de gravar."],
+              ["OpenAPI", "Swagger/Redoc deve refletir endpoints reais e schemas."]
+            ].map(([title, body], index) => (
+              <div className="workflow-step" key={title}>
+                <span>{index + 1}</span>
+                <div>
+                  <strong>{title}</strong>
+                  <p>{body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <pre className="openapi-preview">{openApiPreview}</pre>
+        </aside>
       </section>
     </div>
   );
