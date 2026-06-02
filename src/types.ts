@@ -125,6 +125,42 @@ export interface MergeSuggestion {
   confidence: number;
 }
 
+export type EnrichmentProviderCategory = "contatos" | "profissional" | "busca" | "telefone" | "identidade";
+
+export interface EnrichmentProviderDefinition {
+  id: string;
+  name: string;
+  category: EnrichmentProviderCategory;
+  status: "ativo" | "preparado" | "depende_chave" | "restrito" | "risco";
+  useCase: string;
+  data: string[];
+  limitation: string;
+}
+
+export interface EnrichmentLibraryDefinition {
+  name: string;
+  packageName: string;
+  useCase: string;
+  implemented: boolean;
+}
+
+export interface EnrichmentSuggestion {
+  id: string;
+  contactId: string;
+  provider: string;
+  providerLabel: string;
+  suggestedName: string;
+  headline: string;
+  role: string;
+  company: string;
+  location: string;
+  profileUrl: string;
+  confidence: number;
+  evidence: string[];
+  tags: string[];
+  status: "needs_review" | "suggested" | "applied" | "ignored";
+}
+
 export interface GraphNode {
   id: string;
   label: string;

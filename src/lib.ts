@@ -1,4 +1,18 @@
-import type { Contact, GrafyState, GraphEdge, GraphNode, MergeSuggestion } from "./types";
+import Fuse from "fuse.js";
+import { distance } from "fastest-levenshtein";
+import { parsePhoneNumberFromString } from "libphonenumber-js";
+import { parse as parseDomain } from "tldts";
+import { z } from "zod";
+import type {
+  Contact,
+  EnrichmentLibraryDefinition,
+  EnrichmentProviderDefinition,
+  EnrichmentSuggestion,
+  GrafyState,
+  GraphEdge,
+  GraphNode,
+  MergeSuggestion
+} from "./types";
 
 export const uid = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 
@@ -91,12 +105,284 @@ export const dddLocationMap: Record<string, { label: string; state: string; regi
 export const getDddLocation = (ddd?: string) => ddd ? dddLocationMap[ddd] ?? null : null;
 
 export const formatDddLocation = (ddd?: string) => {
-  if (!ddd) return "DDD não calculado";
+  if (!ddd) return "DDD não identificado";
   const location = getDddLocation(ddd);
-  return location ? `DDD ${ddd} · ${location.label}` : `DDD ${ddd}`;
+  return location ? `DDD ${ddd} · ${location.label} · ${location.region}` : `DDD ${ddd}`;
+};
+
+export const formatDddShortLocation = (ddd?: string) => {
+  if (!ddd) return "DDD não identificado";
+  const location = getDddLocation(ddd);
+  return location ? `DDD ${ddd} · ${location.state}` : `DDD ${ddd}`;
+};
+
+export const getDddLocationSignals = (ddd?: string) => {
+  if (!ddd) return [];
+  const location = getDddLocation(ddd);
+  return unique([
+    `DDD ${ddd}`,
+    location ? `DDD ${ddd} · ${location.state}` : "",
+    location ? `DDD ${ddd} · ${location.label}` : "",
+    location?.label ?? "",
+    location?.state ?? "",
+    location?.region ?? ""
+  ]);
 };
 
 export const unique = <T,>(items: T[]) => Array.from(new Set(items.filter(Boolean)));
+
+export const contactEnrichmentApiCatalog: EnrichmentProviderDefinition[] = [
+  {
+    id: "google-people",
+    name: "Google People API",
+    category: "contatos",
+    status: "ativo",
+    useCase: "Trazer contatos autorizados pelo próprio usuário com nomes, emails, telefones, fotos e organizações salvas.",
+    data: ["nome", "email", "telefone", "foto", "organização", "cargo"],
+    limitation: "Só retorna dados que o usuário autorizou e que existem nos contatos dele."
+  },
+  {
+    id: "linkedin-official",
+    name: "LinkedIn oficial",
+    category: "identidade",
+    status: "restrito",
+    useCase: "Vincular a identidade/perfil do usuário e recursos aprovados no catálogo de produtos do LinkedIn.",
+    data: ["perfil do usuário autorizado", "email autorizado", "URL revisada"],
+    limitation: "Não é uma API aberta para buscar qualquer pessoa por telefone ou nome; enriquecimento amplo exige aprovação/parceria."
+  },
+  {
+    id: "people-data-labs",
+    name: "People Data Labs",
+    category: "profissional",
+    status: "depende_chave",
+    useCase: "Enriquecer pessoa por email, domínio, nome, empresa ou sinais profissionais, com confiança e fonte.",
+    data: ["cargo", "empresa", "localidade", "perfil social", "senioridade"],
+    limitation: "Depende de chave, plano e conformidade LGPD; respostas devem ser revisadas antes de gravar."
+  },
+  {
+    id: "proxycurl",
+    name: "Proxycurl / Nubela",
+    category: "profissional",
+    status: "depende_chave",
+    useCase: "Consultar perfis públicos profissionais e dados relacionados por URL/perfil quando permitido pelo provedor.",
+    data: ["perfil público", "headline", "empresa", "experiência", "educação"],
+    limitation: "Uso comercial precisa validar termos, custo e disponibilidade atual do provedor."
+  },
+  {
+    id: "hunter",
+    name: "Hunter",
+    category: "profissional",
+    status: "depende_chave",
+    useCase: "Qualificar emails e domínios corporativos para inferir empresa, website e contexto B2B.",
+    data: ["email", "domínio", "empresa", "validade", "fontes públicas"],
+    limitation: "Mais forte para email/domínio do que para telefone ou perfil social."
+  },
+  {
+    id: "pipl",
+    name: "Pipl Search API",
+    category: "profissional",
+    status: "depende_chave",
+    useCase: "Busca e resolução de identidade por combinações de nome, email, telefone e sinais públicos.",
+    data: ["telefone", "email", "nome", "localidade", "perfis"],
+    limitation: "Ferramenta sensível; precisa controle de finalidade, consentimento e auditoria."
+  },
+  {
+    id: "phone-validation",
+    name: "AbstractAPI / Numverify",
+    category: "telefone",
+    status: "depende_chave",
+    useCase: "Validar número, país, operadora e melhorar localização quando DDD sozinho for pouco.",
+    data: ["telefone válido", "país", "operadora", "tipo", "localidade aproximada"],
+    limitation: "Não descobre LinkedIn; apenas melhora o sinal telefônico e regional."
+  },
+  {
+    id: "web-search",
+    name: "Brave/Bing/Google CSE/SerpAPI",
+    category: "busca",
+    status: "depende_chave",
+    useCase: "Buscar páginas públicas prováveis com nome, empresa, domínio e termos como LinkedIn.",
+    data: ["título", "snippet", "URL pública", "fonte", "ranking"],
+    limitation: "Precisa evitar scraping de sites logados e sempre mostrar evidência ao usuário."
+  }
+];
+
+export const contactEnrichmentLibraryCatalog: EnrichmentLibraryDefinition[] = [
+  {
+    name: "libphonenumber-js",
+    packageName: "libphonenumber-js",
+    useCase: "Normaliza e valida telefones, calcula E.164 e melhora sinais de DDD/região.",
+    implemented: true
+  },
+  {
+    name: "Fuse.js",
+    packageName: "fuse.js",
+    useCase: "Fuzzy search para comparar nomes, empresas, cargos e contatos parecidos na base.",
+    implemented: true
+  },
+  {
+    name: "tldts",
+    packageName: "tldts",
+    useCase: "Extrai domínio corporativo de emails e ajuda a inferir empresa sem depender de texto solto.",
+    implemented: true
+  },
+  {
+    name: "fastest-levenshtein",
+    packageName: "fastest-levenshtein",
+    useCase: "Calcula similaridade entre nome do contato e email/resultado externo para pontuar confiança.",
+    implemented: true
+  },
+  {
+    name: "Zod",
+    packageName: "zod",
+    useCase: "Valida respostas de provedores antes de criar sugestões no Grafy.",
+    implemented: true
+  },
+  {
+    name: "OpenAI embeddings",
+    packageName: "openai",
+    useCase: "Evolução futura para similaridade semântica entre demandas, cargos, áreas e descrições.",
+    implemented: false
+  }
+];
+
+const enrichmentSuggestionSchema = z.object({
+  suggestedName: z.string().min(1),
+  headline: z.string(),
+  role: z.string(),
+  company: z.string(),
+  location: z.string(),
+  profileUrl: z.string(),
+  confidence: z.number().min(0).max(100),
+  evidence: z.array(z.string()).min(1),
+  tags: z.array(z.string())
+});
+
+const cleanDomainLabel = (domain: string) =>
+  domain
+    .split(".")[0]
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+export const companyFromEmail = (email?: string) => {
+  const domain = email?.split("@")[1]?.trim().toLowerCase();
+  if (!domain) return "";
+  const parsed = parseDomain(domain);
+  const domainName = parsed.domainWithoutSuffix || parsed.domain || domain;
+  const blocked = new Set(["gmail", "hotmail", "outlook", "icloud", "yahoo", "live", "proton", "uol", "bol"]);
+  return blocked.has(domainName) ? "" : cleanDomainLabel(domainName);
+};
+
+const bestCustomField = (contact: Contact, keys: string[]) =>
+  keys.map((key) => String(contact.customFields[key] ?? "").trim()).find(Boolean) ?? "";
+
+const bestLinkedinUrl = (contact: Contact) => {
+  const url = contact.links.find((link) => link.kind === "linkedin")?.value.trim() ?? "";
+  if (!url) return "";
+  return /^https?:\/\//i.test(url) ? url : `https://${url.replace(/^\/+/, "")}`;
+};
+
+export const buildLinkedinResearchUrl = (contact: Contact) => {
+  const company = bestCustomField(contact, ["empresa", "company"]) || companyFromEmail(contact.emails[0]);
+  const role = bestCustomField(contact, ["cargo", "title", "position"]);
+  const query = unique([contact.name, role, company, "LinkedIn", "site:linkedin.com/in"].filter(Boolean)).join(" ");
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+};
+
+export const buildProfessionalEnrichmentSuggestions = (contacts: Contact[], limit = 8): EnrichmentSuggestion[] => {
+  const fuse = new Fuse(contacts, {
+    keys: ["name", "headline", "emails", "phones", "tags", "customFields.empresa", "customFields.cargo", "customFields.area"],
+    includeScore: true,
+    threshold: 0.34
+  });
+
+  return contacts
+    .map((contact) => {
+      const phone = contact.phones[0] ?? "";
+      const parsedPhone = phone ? parsePhoneNumberFromString(phone, "BR") : undefined;
+      const ddd = contact.ddd || extractDdd(phone);
+      const dddLocation = formatDddLocation(ddd);
+      const company = bestCustomField(contact, ["empresa", "company", "organization"]) || companyFromEmail(contact.emails[0]);
+      const role = bestCustomField(contact, ["cargo", "title", "position", "funcao"]) || contact.headline.split("·")[0]?.trim() || "";
+      const area = bestCustomField(contact, ["area", "departamento", "industry"]);
+      const linkedinUrl = bestLinkedinUrl(contact);
+      const emailName = contact.emails[0]?.split("@")[0]?.replace(/[._-]+/g, " ") ?? "";
+      const normalizedName = normalize(contact.name);
+      const normalizedEmailName = normalize(emailName);
+      const nameDistance = normalizedEmailName ? distance(normalizedName, normalizedEmailName) : normalizedName.length;
+      const nameSimilarity = normalizedEmailName
+        ? Math.max(0, 1 - nameDistance / Math.max(normalizedName.length, normalizedEmailName.length, 1))
+        : 0;
+      const peerMatches = company
+        ? fuse.search(company, { limit: 4 }).filter((match) => match.item.id !== contact.id && (match.score ?? 1) < 0.42)
+        : [];
+      const provider = linkedinUrl
+        ? "linkedin-official"
+        : company || role
+          ? "people-data-labs"
+          : phone
+            ? "phone-validation"
+            : "web-search";
+      const providerLabel = contactEnrichmentApiCatalog.find((item) => item.id === provider)?.name ?? "Busca pública assistida";
+      const evidence = unique([
+        `Nome lido do contato: ${contact.name}`,
+        phone ? `Telefone ${parsedPhone?.isValid() ? "válido" : "a validar"} com ${dddLocation}` : "",
+        contact.emails[0] ? `Email analisado: ${contact.emails[0]}` : "",
+        company ? `Domínio/campo sugere empresa: ${company}` : "",
+        role ? `Cargo atual provável: ${role}` : "",
+        area ? `Área indicada: ${area}` : "",
+        linkedinUrl ? "LinkedIn já informado no contato." : "Sem LinkedIn salvo; abrir busca pública para revisão.",
+        peerMatches.length ? `${peerMatches.length} contato(s) parecido(s) na base ajudam a validar contexto.` : ""
+      ]);
+      const confidence = Math.min(
+        96,
+        Math.round(
+          28 +
+            (parsedPhone?.isValid() ? 12 : phone ? 5 : 0) +
+            (ddd ? 8 : 0) +
+            (contact.emails[0] ? 8 : 0) +
+            (company ? 14 : 0) +
+            (role ? 14 : 0) +
+            (linkedinUrl ? 18 : 0) +
+            (nameSimilarity > 0.35 ? 8 : 0) +
+            Math.min(peerMatches.length * 3, 6)
+        )
+      );
+      const parsedSuggestion = enrichmentSuggestionSchema.parse({
+        suggestedName: contact.name,
+        headline: contact.headline || unique([role, company, area]).join(" · ") || "Perfil profissional a revisar",
+        role,
+        company,
+        location: dddLocation,
+        profileUrl: linkedinUrl || buildLinkedinResearchUrl(contact),
+        confidence,
+        evidence,
+        tags: unique([
+          "revisar LinkedIn",
+          company,
+          role,
+          area,
+          ddd ? `DDD ${ddd}` : "",
+          getDddLocation(ddd)?.state ?? "",
+          "enriquecimento profissional"
+        ])
+      });
+
+      return {
+        id: `enrich:${contact.id}`,
+        contactId: contact.id,
+        provider,
+        providerLabel,
+        ...parsedSuggestion,
+        status: confidence >= 72 ? "suggested" : "needs_review"
+      } satisfies EnrichmentSuggestion;
+    })
+    .sort((a, b) => {
+      const aNeedsWork = a.role && a.company && a.profileUrl ? 0 : 1;
+      const bNeedsWork = b.role && b.company && b.profileUrl ? 0 : 1;
+      return bNeedsWork - aNeedsWork || b.confidence - a.confidence;
+    })
+    .slice(0, limit);
+};
 
 export const splitList = (value: string) =>
   unique(
@@ -195,12 +481,14 @@ const recordToContactPartial = (record: Record<string, unknown>, source: Contact
   const currentDemand = toImportText(readImportValue(record, ["demanda", "current_demand", "currentDemand", "o_que_demanda", "precisa", "busca", "needs"]));
   const problemSolves = toImportText(readImportValue(record, ["resolve", "problem_solves", "problemSolves", "problema_que_resolve", "solucao", "solução", "oferece", "helps"]));
   const description = toImportText(readImportValue(record, ["descricao", "description", "bio", "resumo", "observacoes", "observações", "notes", "nota"]));
+  const dddSignals = getDddLocationSignals(ddd);
+  const dddLocation = getDddLocation(ddd);
   const tags = unique([
     ...splitImportValue(readImportValue(record, ["tags", "tag", "interesses", "interests", "temas", "categorias", "category", "grupo", "groups", "trilha"])),
     area,
     title,
     company ? "empresa" : "",
-    ddd ? `DDD ${ddd}` : ""
+    ...dddSignals
   ]);
   const links = [
     { kind: "linkedin" as const, value: toImportText(readImportValue(record, ["linkedin", "linkedIn", "linkedin_url", "perfil_linkedin"])) },
@@ -225,7 +513,11 @@ const recordToContactPartial = (record: Record<string, unknown>, source: Contact
       empresa: company,
       cargo: title,
       area,
-      localidadeDdd: formatDddLocation(ddd)
+      ...(ddd ? {
+        localidadeDdd: formatDddLocation(ddd),
+        estadoDdd: dddLocation?.state ?? "",
+        regiaoDdd: dddLocation?.region ?? ""
+      } : {})
     }
   };
 };
@@ -275,6 +567,7 @@ export const contactHaystack = (contact: Contact) =>
       contact.notes,
       contact.ddd,
       formatDddLocation(contact.ddd),
+      getDddLocationSignals(contact.ddd).join(" "),
       getDddLocation(contact.ddd)?.region ?? "",
       contact.source,
       contact.emails.join(" "),
@@ -363,15 +656,12 @@ const customFieldText = (contact: Contact, key: string) => {
 
 export const getContactTaxonomyTags = (contact: Contact, groups: GrafyState["groups"] = []) => {
   const contactGroups = groups.filter((group) => contact.groupIds.includes(group.id));
-  const dddLocation = getDddLocation(contact.ddd);
   return unique([
     ...contact.tags,
     customFieldText(contact, "area"),
     customFieldText(contact, "cargo"),
     customFieldText(contact, "tipoNegocio"),
-    contact.ddd ? `DDD ${contact.ddd}` : "",
-    dddLocation?.label ?? "",
-    dddLocation?.region ?? "",
+    ...getDddLocationSignals(contact.ddd),
     contact.source,
     ...contactGroups.flatMap((group) => [group.name, ...group.tags])
   ]).filter(Boolean);
@@ -382,8 +672,8 @@ export const graphFilterGroups = [
   { label: "Áreas", tags: ["marketing", "vendas", "finanças", "financeiro", "investimentos", "tecnologia", "produto", "jurídico", "operações", "eventos", "segurança", "RH", "customer success", "construção"] },
   { label: "Negócios", tags: ["B2B", "SaaS", "PME", "startups", "consultoria", "serviços B2B", "serviços locais", "fornecedores", "comunidade", "healthtech", "scale-up", "SaaS vertical", "Venture"] },
   { label: "Estratégia", tags: ["parcerias", "fundraising", "investimento", "contratos recorrentes", "growth", "compliance", "expansão", "recrutamento", "limpeza", "governança"] },
-  { label: "Fontes", tags: ["Google Contacts", "Google Calendar", "Apple Contacts", "Apple Calendar", "CSV", "Manual", "Rede Pública"] },
-  { label: "Localidade", tags: ["DDD 11", "DDD 21", "DDD 31", "DDD 41", "DDD 61", "DDD 81", "DDD 85", "São Paulo/SP", "Rio de Janeiro/RJ", "Belo Horizonte/MG", "Curitiba/PR", "Brasília/DF", "Recife/PE", "Fortaleza/CE", "Sudeste", "Nordeste", "Sul"] },
+  { label: "Fontes", tags: ["Google Contacts", "Google Calendar", "Apple Contacts", "Apple Calendar", "CSV", "JSON", "Excel", "Manual", "Rede Pública"] },
+  { label: "Localidade", tags: ["DDD 11", "DDD 11 · SP", "DDD 21", "DDD 21 · RJ", "DDD 31", "DDD 31 · MG", "DDD 41", "DDD 41 · PR", "DDD 61", "DDD 61 · DF", "DDD 81", "DDD 81 · PE", "DDD 85", "DDD 85 · CE", "SP", "RJ", "MG", "PR", "DF", "PE", "CE", "São Paulo/SP", "Rio de Janeiro/RJ", "Belo Horizonte/MG", "Curitiba/PR", "Brasília/DF", "Recife/PE", "Fortaleza/CE", "Sudeste", "Nordeste", "Sul", "Centro-Oeste", "Norte"] },
   { label: "Pastas", tags: ["Founders e Investidores", "Networking de Eventos", "Empresários Regionais", "decisores"] }
 ];
 
@@ -632,9 +922,10 @@ const contactGraphHaystack = (contact: Contact, groups: GrafyState["groups"]) =>
 
 export const contactMatchesGraphFilters = (contact: Contact, filters: string[], query = "", groups: GrafyState["groups"] = []) => {
   const haystack = contactGraphHaystack(contact, groups);
+  const taxonomy = getContactTaxonomyTags(contact, groups).map((tag) => normalize(tag));
   const normalizedQuery = normalize(query);
   const queryMatches = !normalizedQuery || scoreContact(contact, query) > 0 || haystack.includes(normalizedQuery);
-  const filtersMatch = filters.every((filter) => haystack.includes(normalize(filter)));
+  const filtersMatch = filters.every((filter) => taxonomy.includes(normalize(filter)));
   return queryMatches && filtersMatch;
 };
 
@@ -737,7 +1028,7 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
     });
   });
 
-  const sourceTags = new Set(["Manual", "CSV", "Google Contacts", "Google Calendar", "Apple Contacts", "Apple Calendar", "Rede Pública", "Grupo"]);
+  const sourceTags = new Set(["Manual", "CSV", "JSON", "Excel", "Google Contacts", "Google Calendar", "Apple Contacts", "Apple Calendar", "Rede Pública", "Grupo"]);
   const tags = getGraphFilterTags(contacts, state.groups)
     .filter((tag) => !tag.startsWith("DDD ") && !sourceTags.has(tag))
     .slice(0, 24);
@@ -847,7 +1138,7 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
     const nodeId = `ddd:${ddd}`;
     nodes.push({
       id: nodeId,
-      label: `DDD ${ddd}`,
+      label: formatDddShortLocation(ddd),
       type: "ddd",
       x: 120,
       y: 90 + index * 70,

@@ -234,6 +234,7 @@ Links úteis:
 - [Auditoria de gaps do PRD](docs/PRD-GAP-AUDIT-2026-05-28.md)
 - [Pesquisa de referências](docs/RESEARCH-NETWORK-CRM-INSPIRATION-2026-05-28.md)
 - [Pesquisa profunda de apps e bibliotecas](docs/DEEP-RESEARCH-NETWORK-APPS-2026-05-28.md)
+- [Pesquisa de enriquecimento profissional de contatos](docs/CONTACT-ENRICHMENT-RESEARCH.md)
 
 ## Status
 

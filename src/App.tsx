@@ -49,10 +49,18 @@ import { initialState, seedContacts } from "./data";
 import {
   buildGraph,
   buildOpportunityMatches,
+  buildLinkedinResearchUrl,
+  buildProfessionalEnrichmentSuggestions,
+  contactEnrichmentApiCatalog,
+  contactEnrichmentLibraryCatalog,
+  contactMatchesGraphFilters,
   extractDdd,
+  formatDddShortLocation,
   formatDddLocation,
   formatDate,
   getAllTags,
+  getDddLocation,
+  getDddLocationSignals,
   getGraphFilterTags,
   getMergeSuggestions,
   graphFilterGroups,
@@ -68,7 +76,7 @@ import {
   uid,
   unique
 } from "./lib";
-import type { Contact, CustomField, GrafyState, GraphNode, LinkKind, ViewKey } from "./types";
+import type { Contact, CustomField, EnrichmentSuggestion, GrafyState, GraphNode, LinkKind, ViewKey } from "./types";
 
 const STORAGE_KEY = "grafy-state-v2";
 const SESSION_KEY = "grafy-session-v2";
@@ -403,6 +411,7 @@ const contactFromGooglePerson = (person: GooglePerson, now: string): Contact | n
   const phones = unique((person.phoneNumbers ?? []).map((phone) => phone.value ?? "").filter(Boolean));
   if (!name && !emails.length && !phones.length) return null;
   const ddd = extractDdd(phones[0] ?? "");
+  const dddLocation = getDddLocation(ddd);
   const organization = person.organizations?.[0];
   return {
     id: uid("ct"),
@@ -410,7 +419,7 @@ const contactFromGooglePerson = (person: GooglePerson, now: string): Contact | n
     headline: unique([organization?.title, organization?.name]).join(" · "),
     avatarUrl: person.photos?.find((photo) => photo.url && !photo.default)?.url ?? person.photos?.find((photo) => photo.url)?.url,
     description: person.biographies?.[0]?.value || "Contato importado do Google Contacts com consentimento do usuário.",
-    tags: unique(["Google Contacts", ddd ? `DDD ${ddd}` : "", organization?.name ? "empresa" : ""].filter(Boolean)),
+    tags: unique(["Google Contacts", ...getDddLocationSignals(ddd), organization?.name ? "empresa" : ""].filter(Boolean)),
     phones,
     emails,
     ddd,
@@ -424,7 +433,12 @@ const contactFromGooglePerson = (person: GooglePerson, now: string): Contact | n
     customFields: {
       origemAgenda: "Google Contacts",
       empresa: organization?.name ?? "",
-      cargo: organization?.title ?? ""
+      cargo: organization?.title ?? "",
+      ...(ddd ? {
+        localidadeDdd: formatDddLocation(ddd),
+        estadoDdd: dddLocation?.state ?? "",
+        regiaoDdd: dddLocation?.region ?? ""
+      } : {})
     },
     createdAt: now,
     updatedAt: now
@@ -501,13 +515,14 @@ const contactFromImportedPartial = (
   const now = new Date().toISOString();
   const phones = partial.phones ?? [];
   const ddd = partial.ddd || extractDdd(phones[0] ?? "");
+  const dddLocation = getDddLocation(ddd);
   const source = (partial.source as Contact["source"] | undefined) ?? options.fallbackSource;
   return {
     id: uid("ct"),
     name: partial.name ?? options.fallbackName,
     headline: partial.headline ?? "",
     description: partial.description ?? "",
-    tags: unique([...(partial.tags ?? []), ...(options.extraTags ?? []), ddd ? `DDD ${ddd}` : ""].filter(Boolean)),
+    tags: unique([...(partial.tags ?? []), ...(options.extraTags ?? []), ...getDddLocationSignals(ddd)].filter(Boolean)),
     phones,
     emails: partial.emails ?? [],
     ddd,
@@ -521,7 +536,12 @@ const contactFromImportedPartial = (
     groupIds: options.groupIds ?? partial.groupIds ?? [],
     customFields: {
       ...(partial.customFields ?? {}),
-      ...(options.customFields ?? {})
+      ...(options.customFields ?? {}),
+      ...(ddd ? {
+        localidadeDdd: formatDddLocation(ddd),
+        estadoDdd: dddLocation?.state ?? "",
+        regiaoDdd: dddLocation?.region ?? ""
+      } : {})
     },
     createdAt: now,
     updatedAt: now
@@ -2627,16 +2647,182 @@ function Dashboard({ state, setView, setSelectedContactId }: AppShellProps) {
   );
 }
 
+type SmartFilterGroup = {
+  label: string;
+  helper: string;
+  tags: string[];
+};
+
+function getFilterGroupTags(label: string) {
+  return graphFilterGroups.find((group) => normalizeGraphTag(group.label) === normalizeGraphTag(label))?.tags ?? [];
+}
+
+function pickAvailableTags(availableTags: string[], desiredTags: string[]) {
+  return unique(desiredTags
+    .map((tag) => availableTags.find((available) => normalizeGraphTag(available) === normalizeGraphTag(tag)) ?? "")
+    .filter(Boolean));
+}
+
+function getSmartFilterGroups(contacts: Contact[], groups: GrafyState["groups"]): SmartFilterGroup[] {
+  const availableTags = getGraphFilterTags(contacts, groups);
+  const locationTags = unique(
+    contacts.flatMap((contact) => {
+      const location = getDddLocation(contact.ddd);
+      return [
+        location ? formatDddShortLocation(contact.ddd) : contact.ddd ? `DDD ${contact.ddd}` : "",
+        location?.state ?? "",
+        location?.region ?? "",
+        location?.label ?? ""
+      ];
+    })
+  );
+  const folderTags = unique(groups.flatMap((group) => [group.name, ...group.tags]));
+
+  return [
+    {
+      label: "Região e DDD",
+      helper: "Veja onde sua rede se concentra por telefone salvo.",
+      tags: pickAvailableTags(availableTags, [...locationTags, ...getFilterGroupTags("Localidade")]).slice(0, 14)
+    },
+    {
+      label: "Cargo e decisão",
+      helper: "Encontre decisores, especialistas e quem pode abrir portas.",
+      tags: pickAvailableTags(availableTags, getFilterGroupTags("Cargos")).slice(0, 12)
+    },
+    {
+      label: "Área de atuação",
+      helper: "Cruze setores para chegar em oportunidades mais precisas.",
+      tags: pickAvailableTags(availableTags, getFilterGroupTags("Áreas")).slice(0, 12)
+    },
+    {
+      label: "Negócio e estratégia",
+      helper: "Combine tipo de negócio, demanda e intenção comercial.",
+      tags: pickAvailableTags(availableTags, [...getFilterGroupTags("Negócios"), ...getFilterGroupTags("Estratégia")]).slice(0, 14)
+    },
+    {
+      label: "Origem dos dados",
+      helper: "Separe contatos vindos do Google, Apple, planilhas ou manual.",
+      tags: pickAvailableTags(availableTags, getFilterGroupTags("Fontes")).slice(0, 10)
+    },
+    {
+      label: "Pastas e grupos",
+      helper: "Use pastas para criar conexões extras além de cargo e empresa.",
+      tags: pickAvailableTags(availableTags, [...folderTags, ...getFilterGroupTags("Pastas")]).slice(0, 12)
+    }
+  ].filter((group) => group.tags.length > 0);
+}
+
+function getFilterMatchCount(contacts: Contact[], groups: GrafyState["groups"], tag: string) {
+  return contacts.filter((contact) => contactMatchesGraphFilters(contact, [tag], "", groups)).length;
+}
+
+function filterCountLabel(count: number) {
+  return count === 1 ? "1 pessoa" : `${count} pessoas`;
+}
+
+function SmartFilterPanel({
+  contacts,
+  groups,
+  activeFilters,
+  onToggle,
+  onClear,
+  title,
+  description
+}: {
+  contacts: Contact[];
+  groups: GrafyState["groups"];
+  activeFilters: string[];
+  onToggle: (tag: string) => void;
+  onClear: () => void;
+  title: string;
+  description: string;
+}) {
+  const filterGroups = useMemo(
+    () =>
+      getSmartFilterGroups(contacts, groups)
+        .map((group) => ({
+          ...group,
+          tags: group.tags.filter((tag) => getFilterMatchCount(contacts, groups, tag) > 0)
+        }))
+        .filter((group) => group.tags.length > 0),
+    [contacts, groups]
+  );
+
+  return (
+    <section className="smart-filter-panel">
+      <div className="smart-filter-head">
+        <div>
+          <strong>
+            <Filter size={16} />
+            {title}
+          </strong>
+          <p>{description}</p>
+        </div>
+        <span className="toolbar-count">{activeFilters.length ? `${activeFilters.length} ativo(s)` : `${contacts.length} contatos base`}</span>
+      </div>
+
+      <div className="smart-filter-groups">
+        {filterGroups.map((group) => (
+          <div className="smart-filter-family" key={group.label}>
+            <div>
+              <strong>{group.label}</strong>
+              <small>{group.helper}</small>
+            </div>
+            <div className="smart-filter-chip-grid">
+              {group.tags.map((tag) => {
+                const active = activeFilters.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag));
+                const count = getFilterMatchCount(contacts, groups, tag);
+                return (
+                  <button
+                    key={`${group.label}-${tag}`}
+                    type="button"
+                    aria-pressed={active}
+                    className={`${active ? "filter-chip active smart-chip" : "filter-chip smart-chip"} ${tagToneClass(tag)}`}
+                    onClick={() => onToggle(tag)}
+                  >
+                    <span>{tag}</span>
+                    <small>{filterCountLabel(count)}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {activeFilters.length > 0 && (
+        <div className="smart-active-filters">
+          <span>Combinando:</span>
+          {activeFilters.map((filter) => (
+            <button key={filter} className={`filter-chip active ${tagToneClass(filter)}`} type="button" onClick={() => onToggle(filter)}>
+              {filter}
+              <X size={13} />
+            </button>
+          ))}
+          <button className="secondary-button compact" type="button" onClick={onClear}>Limpar</button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ContactsView({ state, selectedContact, setSelectedContactId, addContact, updateContact, deleteContact, approveMerge }: AppShellProps) {
   const [query, setQuery] = useState("");
-  const [tag, setTag] = useState("");
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const suggestions = getMergeSuggestions(state.contacts);
-  const tags = getAllTags(state.contacts);
+  const toggleFilter = (tag: string) => {
+    setActiveFilters((current) =>
+      current.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag))
+        ? current.filter((item) => normalizeGraphTag(item) !== normalizeGraphTag(tag))
+        : [...current, tag]
+    );
+  };
   const contacts = useMemo(() => {
-    const searched = query ? searchContacts(state.contacts, query) : state.contacts;
-    return tag ? searched.filter((contact) => contact.tags.includes(tag)) : searched;
-  }, [query, state.contacts, tag]);
+    const filtered = state.contacts.filter((contact) => contactMatchesGraphFilters(contact, activeFilters, query, state.groups));
+    return query ? searchContacts(filtered, query) : filtered;
+  }, [activeFilters, query, state.contacts, state.groups]);
+  const locationSummary = unique(contacts.map((contact) => formatDddShortLocation(contact.ddd)).filter((label) => !label.includes("não identificado"))).slice(0, 4);
 
   return (
     <div className="screen split-screen">
@@ -2644,23 +2830,29 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
         <div className="section-toolbar">
           <div className="search-box">
             <Search size={17} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nome, tag, demanda, DDD..." />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nome, cargo, área, DDD, região ou demanda" />
           </div>
+          <span className="toolbar-count">{contacts.length} de {state.contacts.length}</span>
           <button className="primary-button compact" onClick={() => setShowCreate(true)}>
             <Plus size={17} />
             Novo
           </button>
         </div>
 
-        <div className="filter-strip">
-          <button className={!tag ? "filter-chip active" : "filter-chip"} onClick={() => setTag("")}>
-            Todos
-          </button>
-          {tags.slice(0, 10).map((item) => (
-            <button key={item} className={`${tag === item ? "filter-chip active" : "filter-chip"} ${tagToneClass(item)}`} onClick={() => setTag(item)}>
-              {item}
-            </button>
-          ))}
+        <SmartFilterPanel
+          contacts={state.contacts}
+          groups={state.groups}
+          activeFilters={activeFilters}
+          onToggle={toggleFilter}
+          onClear={() => setActiveFilters([])}
+          title="Filtros inteligentes"
+          description="Selecione mais de um chip para afunilar: diretor + financeiro + DDD 11, por exemplo."
+        />
+
+        <div className="result-context-bar">
+          <span>{activeFilters.length || query ? "Filtro aplicado" : "Visão geral"}</span>
+          <strong>{contacts.length} contato(s) encontrados</strong>
+          {locationSummary.length > 0 && <small>Regiões em foco: {locationSummary.join(" · ")}</small>}
         </div>
 
         {suggestions.length > 0 && (
@@ -2692,10 +2884,19 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
               </span>
               <span className="row-meta">
                 {contact.isPublic && <Eye size={15} />}
-                {contact.ddd && <small>DDD {contact.ddd}</small>}
+                {contact.ddd && (
+                  <span className="row-location">
+                    <MapPin size={13} />
+                    <small>{formatDddShortLocation(contact.ddd)}</small>
+                    {getDddLocation(contact.ddd)?.region && <em>{getDddLocation(contact.ddd)?.region}</em>}
+                  </span>
+                )}
               </span>
             </button>
           ))}
+          {contacts.length === 0 && (
+            <EmptyState title="Nenhum contato nesse cruzamento" body="Remova um filtro ou pesquise por outro cargo, área, DDD, estado ou região." />
+          )}
         </div>
       </section>
 
@@ -2907,7 +3108,7 @@ function ContactForm({ onSave, onCancel }: { onSave: (contact: Contact) => void;
   );
 }
 
-function ImportView({ addContacts, state, setView }: AppShellProps) {
+function ImportView({ addContacts, state, setView, updateContact, setSelectedContactId }: AppShellProps) {
   const [importText, setImportText] = useState("");
   const [filePreview, setFilePreview] = useState<Partial<Contact>[] | null>(null);
   const [fileName, setFileName] = useState("");
@@ -2920,6 +3121,7 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
   const [vcardText, setVcardText] = useState("");
   const [icsText, setIcsText] = useState("");
   const [linkedinQuery, setLinkedinQuery] = useState("");
+  const [enrichmentStatus, setEnrichmentStatus] = useState("");
   const {
     oauthConfig,
     googleClientConfigured
@@ -3090,9 +3292,40 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
     }
   };
 
-  const openLinkedinResearch = (name: string) => {
-    const query = `${name} LinkedIn cargo empresa`;
-    window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, "_blank", "noopener,noreferrer");
+  const openLinkedinResearch = (contact: Contact) => {
+    window.open(buildLinkedinResearchUrl(contact), "_blank", "noopener,noreferrer");
+  };
+
+  const enrichmentBase = linkedinQuery ? searchContacts(state.contacts, linkedinQuery) : state.contacts;
+  const enrichmentSuggestions = useMemo(
+    () => buildProfessionalEnrichmentSuggestions(enrichmentBase, 8),
+    [enrichmentBase]
+  );
+
+  const applyEnrichmentSuggestion = (suggestion: EnrichmentSuggestion) => {
+    const contact = state.contacts.find((item) => item.id === suggestion.contactId);
+    if (!contact) return;
+    const shouldPersistLinkedin = suggestion.profileUrl.includes("linkedin.com/in/");
+    updateContact(contact.id, {
+      headline: contact.headline || suggestion.headline,
+      tags: unique([...contact.tags, ...suggestion.tags]),
+      links: shouldPersistLinkedin && !contact.links.some((link) => link.kind === "linkedin")
+        ? [...contact.links, { kind: "linkedin", value: suggestion.profileUrl }]
+        : contact.links,
+      customFields: {
+        ...contact.customFields,
+        empresa: String(contact.customFields.empresa ?? suggestion.company),
+        cargo: String(contact.customFields.cargo ?? suggestion.role),
+        enriquecimentoProfissional: `${suggestion.providerLabel} · ${suggestion.confidence}% · revisão humana`
+      },
+      notes: unique([
+        contact.notes,
+        `Enriquecimento sugerido por ${suggestion.providerLabel}: ${suggestion.evidence.slice(0, 3).join(" | ")}`
+      ]).join("\n")
+    });
+    setSelectedContactId(contact.id);
+    setEnrichmentStatus(`${contact.name} atualizado com cargo, empresa, tags e evidências revisadas.`);
+    setView("contacts");
   };
 
   const linkedinContacts = searchContacts(state.contacts, linkedinQuery).slice(0, 6);
@@ -3289,19 +3522,101 @@ function ImportView({ addContacts, state, setView }: AppShellProps) {
           </button>
         </section>
 
-        <section className="import-card linkedin-research">
-          <h2>Enriquecimento LinkedIn seguro</h2>
-          <p>
-            O Grafy pode abrir pesquisas assistidas para o usuário confirmar cargo/empresa. Evitamos scraping automático
-            logado no LinkedIn; a atualização entra por revisão humana ou API autorizada.
-          </p>
+        <section className="import-card linkedin-research professional-enrichment">
+          <div className="enrichment-head">
+            <div>
+              <span className="context public">enriquecimento profissional</span>
+              <h2>Descobrir cargo, empresa e LinkedIn com revisão</h2>
+              <p>
+                O Grafy lê nome, telefone, email, DDD e origem do contato para sugerir buscas profissionais e provedores
+                seguros. Não fazemos scraping logado no LinkedIn: abrimos evidências, calculamos confiança e só aplicamos
+                cargo/empresa/tags quando o usuário aprova.
+              </p>
+            </div>
+            <div className="enrichment-score-card">
+              <strong>{enrichmentSuggestions.length}</strong>
+              <span>sugestões prontas</span>
+              <small>{contactEnrichmentApiCatalog.length} APIs avaliadas · {contactEnrichmentLibraryCatalog.filter((item) => item.implemented).length} libs ativas</small>
+            </div>
+          </div>
+
           <div className="search-box">
             <Search size={17} />
-            <input value={linkedinQuery} onChange={(event) => setLinkedinQuery(event.target.value)} placeholder="Filtrar contatos para pesquisar no LinkedIn" />
+            <input value={linkedinQuery} onChange={(event) => setLinkedinQuery(event.target.value)} placeholder="Filtrar por pessoa, empresa, telefone, DDD, área ou cargo" />
           </div>
-          <div className="linkedin-list">
+          {enrichmentStatus && <p className="integration-note">{enrichmentStatus}</p>}
+
+          <div className="enrichment-grid">
+            {enrichmentSuggestions.map((suggestion) => {
+              const contact = state.contacts.find((item) => item.id === suggestion.contactId);
+              if (!contact) return null;
+              return (
+                <article className="enrichment-card" key={suggestion.id}>
+                  <header>
+                    <span className="avatar small">{initials(contact.name)}</span>
+                    <div>
+                      <strong>{contact.name}</strong>
+                      <small>{suggestion.headline}</small>
+                    </div>
+                    <span className={`confidence-pill ${suggestion.confidence >= 72 ? "high" : "review"}`}>{suggestion.confidence}%</span>
+                  </header>
+                  <div className="enrichment-facts">
+                    <Info icon={BriefcaseBusiness} label="Cargo" value={suggestion.role || "A confirmar"} />
+                    <Info icon={Building2} label="Empresa" value={suggestion.company || "A confirmar"} />
+                    <Info icon={MapPin} label="Região" value={suggestion.location} />
+                    <Info icon={ShieldCheck} label="Fonte" value={suggestion.providerLabel} />
+                  </div>
+                  <ul className="evidence-list">
+                    {suggestion.evidence.slice(0, 4).map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                  <div className="tag-cloud compact">
+                    {suggestion.tags.slice(0, 6).map((tag) => <span className={`tag-chip ${tagToneClass(tag)}`} key={tag}>{tag}</span>)}
+                  </div>
+                  <div className="button-row">
+                    <button className="secondary-button compact" type="button" onClick={() => window.open(suggestion.profileUrl, "_blank", "noopener,noreferrer")}>
+                      <Link2 size={16} />
+                      Abrir evidência
+                    </button>
+                    <button className="primary-button compact" type="button" onClick={() => applyEnrichmentSuggestion(suggestion)}>
+                      <Check size={16} />
+                      Aplicar sinais
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          <div className="enrichment-catalog">
+            <article>
+              <h3>APIs mapeadas para o Grafy</h3>
+              <div className="catalog-list">
+                {contactEnrichmentApiCatalog.map((api) => (
+                  <div key={api.id}>
+                    <strong>{api.name}</strong>
+                    <span>{api.useCase}</span>
+                    <small>{api.limitation}</small>
+                  </div>
+                ))}
+              </div>
+            </article>
+            <article>
+              <h3>Bibliotecas do motor inteligente</h3>
+              <div className="catalog-list compact">
+                {contactEnrichmentLibraryCatalog.map((library) => (
+                  <div key={library.packageName}>
+                    <strong>{library.name}</strong>
+                    <span>{library.useCase}</span>
+                    <small>{library.implemented ? "Instalada/ativa no protótipo" : "Preparada para próxima fase"}</small>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </div>
+
+          <div className="linkedin-list quick-linkedin-list">
             {linkedinContacts.map((contact) => (
-              <button key={contact.id} onClick={() => openLinkedinResearch(contact.name)}>
+              <button key={contact.id} onClick={() => openLinkedinResearch(contact)}>
                 <span className="avatar small">{initials(contact.name)}</span>
                 <span>
                   <strong>{contact.name}</strong>
@@ -3466,6 +3781,31 @@ function IntegrationsView({ state, setView }: AppShellProps) {
         </div>
       </section>
 
+      <section className="provider-research-panel">
+        <div>
+          <span className="context public">pesquisa aplicada</span>
+          <h2>Enriquecimento profissional sem dados falsos</h2>
+          <p>
+            Para descobrir cargo, empresa e possível LinkedIn, o Grafy combina APIs autorizadas, busca pública e bibliotecas
+            locais. O usuário vê a evidência e aprova antes de alterar o contato.
+          </p>
+        </div>
+        <div className="provider-research-grid">
+          <article>
+            <strong>{contactEnrichmentApiCatalog.length} APIs avaliadas</strong>
+            <span>{contactEnrichmentApiCatalog.slice(0, 5).map((api) => api.name).join(" · ")}</span>
+          </article>
+          <article>
+            <strong>{contactEnrichmentLibraryCatalog.filter((item) => item.implemented).length} bibliotecas ativas</strong>
+            <span>{contactEnrichmentLibraryCatalog.filter((item) => item.implemented).map((library) => library.name).join(" · ")}</span>
+          </article>
+          <article>
+            <strong>Regra de confiança</strong>
+            <span>Nome + telefone/DDD + email/domínio + cargo/empresa + fonte revisada.</span>
+          </article>
+        </div>
+      </section>
+
       <div className="connector-grid organized">
         {connectors.map((connector) => {
           const Icon = connector.icon;
@@ -3547,7 +3887,24 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
   const graph = useMemo(() => buildGraph(state, query, groupId || undefined, activeFilters), [activeFilters, groupId, query, state]);
   const nodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
-  const availableTags = getGraphFilterTags(state.contacts, state.groups);
+  const graphScopedContacts = useMemo(
+    () => groupId ? state.contacts.filter((contact) => contact.groupIds.includes(groupId)) : state.contacts,
+    [groupId, state.contacts]
+  );
+  const availableTags = useMemo(() => getGraphFilterTags(graphScopedContacts, state.groups), [graphScopedContacts, state.groups]);
+  const visibleGraphFilterGroups = useMemo(
+    () =>
+      graphFilterGroups
+        .map((group) => ({
+          ...group,
+          tags: group.tags.filter((tag) =>
+            availableTags.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag)) &&
+            getFilterMatchCount(graphScopedContacts, state.groups, tag) > 0
+          )
+        }))
+        .filter((group) => group.tags.length > 0),
+    [availableTags, graphScopedContacts, state.groups]
+  );
 
   const toggleFilter = (tag: string) => {
     setActiveFilters((current) =>
@@ -3624,22 +3981,21 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
       <section className="graph-filter-panel">
         <div>
           <strong>Filtros combináveis</strong>
-          <span>{activeFilters.length ? `${activeFilters.length} filtro(s) ativo(s)` : "Escolha cargo, área, DDD, pasta ou estratégia"}</span>
+          <span>{activeFilters.length ? `${activeFilters.length} filtro(s) ativo(s)` : "Escolha cargo, área, DDD/estado, pasta ou estratégia"}</span>
         </div>
         <div className="graph-filter-groups">
-          {graphFilterGroups.map((group) => (
+          {visibleGraphFilterGroups.map((group) => (
             <div key={group.label} className="filter-family">
               <small>{group.label}</small>
               <div>
-                {group.tags
-                  .filter((tag) => availableTags.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag)))
-                  .map((tag) => (
+                {group.tags.map((tag) => (
                     <button
                       key={tag}
                       className={`${activeFilters.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag)) ? "filter-chip active" : "filter-chip"} ${tagToneClass(tag)}`}
                       onClick={() => toggleFilter(tag)}
                     >
-                      {tag}
+                      <span>{tag}</span>
+                      <small>{filterCountLabel(getFilterMatchCount(graphScopedContacts, state.groups, tag))}</small>
                     </button>
                   ))}
               </div>
@@ -3650,11 +4006,11 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
 
       <section className="graph-focus-bar">
         <div>
-          <strong>{graph.hasFocus ? `${graph.matchedContactIds.size} contato(s) em foco` : `${state.contacts.length} contatos mapeados`}</strong>
+          <strong>{graph.hasFocus ? `${graph.matchedContactIds.size} contato(s) em foco` : `${graphScopedContacts.length} contatos mapeados`}</strong>
           <span>
             {graph.hasFocus
               ? "Quem não bate com a combinação fica em 8% de opacidade para manter contexto sem poluir a leitura."
-              : "Combine filtros como diretor + finanças, DDD 11 + eventos ou pasta + tecnologia."}
+              : "Exemplos: diretor + finanças, DDD 11 · SP + eventos, ou pasta + tecnologia."}
           </span>
         </div>
         <div className="active-filter-stack">
@@ -3769,13 +4125,15 @@ function tagToneClass(tag: string) {
   const family = graphFilterGroups.find((group) =>
     group.tags.some((item) => normalizeGraphTag(item) === normalized)
   )?.label;
-  if (normalized.startsWith("ddd ")) return "tag-ddd";
-  if (family === "Cargos") return "tag-role";
-  if (family === "Áreas") return "tag-area";
-  if (family === "Negócios") return "tag-business";
-  if (family === "Estratégia") return "tag-strategy";
-  if (family === "Fontes") return "tag-source";
-  if (family === "Pastas") return "tag-folder";
+  const familyKey = normalizeGraphTag(family ?? "");
+  const stateCodes = new Set(["ac", "al", "am", "ap", "ba", "ce", "df", "es", "go", "ma", "mg", "ms", "mt", "pa", "pb", "pe", "pi", "pr", "rj", "rn", "ro", "rr", "rs", "sc", "se", "sp", "to"]);
+  if (normalized.startsWith("ddd ") || familyKey === "localidade" || stateCodes.has(normalized)) return "tag-ddd";
+  if (familyKey === "cargos") return "tag-role";
+  if (familyKey === "areas") return "tag-area";
+  if (familyKey === "negocios") return "tag-business";
+  if (familyKey === "estrategia") return "tag-strategy";
+  if (familyKey === "fontes") return "tag-source";
+  if (familyKey === "pastas") return "tag-folder";
   return "";
 }
 
@@ -3793,7 +4151,10 @@ function formatCustomFieldKey(key: string) {
     cargo: "Cargo",
     tipoNegocio: "Tipo de negócio",
     origemAgenda: "Origem da agenda",
-    eventoOrigem: "Evento de origem"
+    eventoOrigem: "Evento de origem",
+    localidadeDdd: "Localidade por DDD",
+    estadoDdd: "Estado do DDD",
+    regiaoDdd: "Região do DDD"
   };
   return labels[key] ?? key.replace(/([A-Z])/g, " $1").replace(/^./, (letter) => letter.toUpperCase());
 }
@@ -3960,11 +4321,19 @@ function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelect
 
 function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellProps) {
   const [query, setQuery] = useState("");
-  const [tag, setTag] = useState("");
-  const publicContacts = searchContacts(state.contacts.filter((contact) => contact.isPublic), query);
-  const filteredPublicContacts = tag ? publicContacts.filter((contact) => contact.tags.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag))) : publicContacts;
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const publicBaseContacts = state.contacts.filter((contact) => contact.isPublic);
+  const publicContacts = publicBaseContacts.filter((contact) => contactMatchesGraphFilters(contact, activeFilters, query, state.groups));
+  const filteredPublicContacts = query ? searchContacts(publicContacts, query) : publicContacts;
   const ownProfileVisible = state.profile.visibility === "platform";
-  const publicTags = getAllTags(publicContacts).slice(0, 12);
+  const toggleFilter = (tag: string) => {
+    setActiveFilters((current) =>
+      current.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag))
+        ? current.filter((item) => normalizeGraphTag(item) !== normalizeGraphTag(tag))
+        : [...current, tag]
+    );
+  };
+  const publicRegions = unique(filteredPublicContacts.map((contact) => formatDddShortLocation(contact.ddd)).filter((label) => !label.includes("não identificado"))).slice(0, 4);
 
   return (
     <div className="screen public-screen">
@@ -3992,22 +4361,29 @@ function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellPro
       <div className="section-toolbar">
         <div className="search-box">
           <Search size={17} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por tag, demanda ou problema resolvido" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por tag, DDD, região, demanda ou problema resolvido" />
         </div>
-        <span className="toolbar-count">{filteredPublicContacts.length} resultado(s)</span>
+        <span className="toolbar-count">{filteredPublicContacts.length} de {publicBaseContacts.length}</span>
         <button className="secondary-button compact" onClick={() => setView("graph")}>
           <Network size={16} />
           Ver no grafo
         </button>
       </div>
 
-      <div className="filter-strip network-filter-strip">
-        <button className={!tag ? "filter-chip active" : "filter-chip"} onClick={() => setTag("")}>Todos</button>
-        {publicTags.map((item) => (
-          <button key={item} className={`${tag === item ? "filter-chip active" : "filter-chip"} ${tagToneClass(item)}`} onClick={() => setTag(item)}>
-            {item}
-          </button>
-        ))}
+      <SmartFilterPanel
+        contacts={publicBaseContacts}
+        groups={state.groups}
+        activeFilters={activeFilters}
+        onToggle={toggleFilter}
+        onClear={() => setActiveFilters([])}
+        title="Filtros da Rede"
+        description="Cruze região, cargo, área e fonte para descobrir quem está visível sem abrir a base privada."
+      />
+
+      <div className="result-context-bar public-context">
+        <span>{activeFilters.length || query ? "Rede filtrada" : "Rede pública"}</span>
+        <strong>{filteredPublicContacts.length + (ownProfileVisible ? 1 : 0)} perfil(is) visíveis</strong>
+        {publicRegions.length > 0 && <small>Regiões: {publicRegions.join(" · ")}</small>}
       </div>
 
       <div className="public-grid">
@@ -4038,7 +4414,7 @@ function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellPro
             <p>{contact.currentDemand}</p>
             <div className="network-reason">
               <Sparkles size={15} />
-              <span>Entra no grafo por tags, DDD {contact.ddd || "?"}, fonte {contact.source} e opt-in público.</span>
+              <span>Entra no grafo por tags, {formatDddLocation(contact.ddd)}, fonte {contact.source} e opt-in público.</span>
             </div>
             <div className="button-row">
               <button className="secondary-button compact" onClick={() => {
@@ -4051,6 +4427,9 @@ function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellPro
             </div>
           </article>
         ))}
+        {filteredPublicContacts.length === 0 && !ownProfileVisible && (
+          <EmptyState title="Nenhum perfil público nesse filtro" body="Tente remover um chip ou buscar por outro DDD, estado, cargo ou área." />
+        )}
       </div>
     </div>
   );

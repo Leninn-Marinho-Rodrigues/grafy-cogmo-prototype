@@ -3,3 +3,6 @@ dist/
 *.tsbuildinfo
 .playwright-mcp/
 *.log
+.env
+.env.local
+.env.*.local
