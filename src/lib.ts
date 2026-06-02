@@ -7,6 +7,7 @@ import type {
   Contact,
   EnrichmentLibraryDefinition,
   EnrichmentProviderDefinition,
+  EnrichmentRuntimeSignal,
   EnrichmentSuggestion,
   GrafyState,
   GraphEdge,
@@ -281,6 +282,14 @@ const bestLinkedinUrl = (contact: Contact) => {
   return /^https?:\/\//i.test(url) ? url : `https://${url.replace(/^\/+/, "")}`;
 };
 
+const providerStatusLabel: Record<EnrichmentProviderDefinition["status"], EnrichmentRuntimeSignal["status"]> = {
+  ativo: "ativo",
+  preparado: "preparado",
+  depende_chave: "depende_chave",
+  restrito: "restrito",
+  risco: "restrito"
+};
+
 export const buildLinkedinResearchUrl = (contact: Contact) => {
   const company = bestCustomField(contact, ["empresa", "company"]) || companyFromEmail(contact.emails[0]);
   const role = bestCustomField(contact, ["cargo", "title", "position"]);
@@ -323,6 +332,66 @@ export const buildProfessionalEnrichmentSuggestions = (contacts: Contact[], limi
             ? "phone-validation"
             : "web-search";
       const providerLabel = contactEnrichmentApiCatalog.find((item) => item.id === provider)?.name ?? "Busca pública assistida";
+      const providerDefinition = contactEnrichmentApiCatalog.find((item) => item.id === provider);
+      const runtimeSignals: EnrichmentRuntimeSignal[] = [
+        {
+          source: "library",
+          name: "libphonenumber-js",
+          status: "rodando",
+          value: phone
+            ? parsedPhone?.isValid()
+              ? parsedPhone.formatInternational()
+              : "telefone a validar"
+            : "sem telefone",
+          detail: ddd ? `DDD ${ddd} usado como sinal regional.` : "Contato sem DDD extraído."
+        },
+        {
+          source: "library",
+          name: "tldts",
+          status: "rodando",
+          value: company || "sem domínio corporativo",
+          detail: contact.emails[0] ? `Email analisado: ${contact.emails[0]}.` : "Contato sem email para inferir domínio."
+        },
+        {
+          source: "library",
+          name: "Fuse.js",
+          status: "rodando",
+          value: `${peerMatches.length} similar(es)`,
+          detail: peerMatches.length
+            ? peerMatches.map((match) => match.item.name).slice(0, 3).join(", ")
+            : "Nenhum contato parecido o suficiente na base atual."
+        },
+        {
+          source: "library",
+          name: "fastest-levenshtein",
+          status: "rodando",
+          value: `${Math.round(nameSimilarity * 100)}% nome/email`,
+          detail: emailName ? `Comparou "${contact.name}" com "${emailName}".` : "Sem email para comparar nome."
+        },
+        {
+          source: "library",
+          name: "Zod",
+          status: "rodando",
+          value: "schema validado",
+          detail: "A sugestão só aparece depois de validar campos obrigatórios e confiança."
+        },
+        ...(contact.source === "Google Contacts" || contact.source === "Google Calendar"
+          ? [{
+              source: "api" as const,
+              name: contact.source === "Google Contacts" ? "Google People API" : "Google Calendar API",
+              status: "ativo" as const,
+              value: contact.source,
+              detail: "Contato veio de OAuth Google autorizado pelo usuário."
+            }]
+          : []),
+        {
+          source: "api",
+          name: providerDefinition?.name ?? providerLabel,
+          status: providerDefinition ? providerStatusLabel[providerDefinition.status] : "preparado",
+          value: providerDefinition?.status === "depende_chave" ? "aguardando chave/backend" : "pronto para revisão",
+          detail: providerDefinition?.limitation ?? "Provedor preparado para retornar evidências externas."
+        }
+      ];
       const evidence = unique([
         `Nome lido do contato: ${contact.name}`,
         phone ? `Telefone ${parsedPhone?.isValid() ? "válido" : "a validar"} com ${dddLocation}` : "",
@@ -373,6 +442,7 @@ export const buildProfessionalEnrichmentSuggestions = (contacts: Contact[], limi
         provider,
         providerLabel,
         ...parsedSuggestion,
+        runtimeSignals,
         status: confidence >= 72 ? "suggested" : "needs_review"
       } satisfies EnrichmentSuggestion;
     })

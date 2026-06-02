@@ -3565,6 +3565,27 @@ label {
   gap: 14px;
 }
 
+.runtime-overview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.runtime-overview article {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(102, 231, 255, 0.16);
+  border-radius: var(--radius);
+  background: rgba(102, 231, 255, 0.055);
+  padding: 12px;
+}
+
+.runtime-overview span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .enrichment-card {
   display: grid;
   gap: 14px;
@@ -3650,6 +3671,91 @@ label {
   border-radius: 50%;
   background: var(--cyan);
   box-shadow: 0 0 12px rgba(102, 231, 255, 0.56);
+}
+
+.runtime-signal-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.095);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.18);
+  padding: 12px;
+}
+
+.runtime-signal-panel > strong {
+  font-size: 13px;
+}
+
+.runtime-signal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.runtime-signal {
+  display: grid;
+  gap: 5px;
+  align-content: start;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.045);
+  padding: 10px;
+}
+
+.runtime-signal span,
+.api-status {
+  width: fit-content;
+  border: 1px solid rgba(102, 231, 255, 0.24);
+  border-radius: 999px;
+  color: var(--cyan);
+  background: rgba(102, 231, 255, 0.08);
+  padding: 3px 7px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.runtime-signal.api span {
+  border-color: rgba(255, 209, 102, 0.28);
+  color: var(--amber);
+  background: rgba(255, 209, 102, 0.09);
+}
+
+.runtime-signal.ativo span,
+.runtime-signal.rodando span,
+.api-status.ativo,
+.api-status.preparado {
+  border-color: rgba(96, 242, 213, 0.28);
+  color: var(--green);
+  background: rgba(96, 242, 213, 0.09);
+}
+
+.runtime-signal.depende_chave span,
+.api-status.depende_chave,
+.runtime-signal.restrito span,
+.api-status.restrito {
+  border-color: rgba(255, 209, 102, 0.3);
+  color: var(--amber);
+  background: rgba(255, 209, 102, 0.09);
+}
+
+.runtime-signal strong {
+  font-size: 12px;
+}
+
+.runtime-signal em {
+  color: var(--text);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.runtime-signal small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .enrichment-catalog {

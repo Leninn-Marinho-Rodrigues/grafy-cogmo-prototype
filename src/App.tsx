@@ -3546,6 +3546,21 @@ function ImportView({ addContacts, state, setView, updateContact, setSelectedCon
           </div>
           {enrichmentStatus && <p className="integration-note">{enrichmentStatus}</p>}
 
+          <div className="runtime-overview">
+            <article>
+              <strong>Bibliotecas rodando agora</strong>
+              <span>libphonenumber-js, tldts, Fuse.js, fastest-levenshtein e Zod aparecem no raio-X de cada sugestão.</span>
+            </article>
+            <article>
+              <strong>APIs reais ou conectáveis</strong>
+              <span>Google People API funciona no login. Enriquecedores externos ficam marcados como dependentes de chave/backend.</span>
+            </article>
+            <article>
+              <strong>Sem dado inventado</strong>
+              <span>O Grafy mostra evidência, status e confiança antes de aplicar qualquer cargo, empresa ou LinkedIn.</span>
+            </article>
+          </div>
+
           <div className="enrichment-grid">
             {enrichmentSuggestions.map((suggestion) => {
               const contact = state.contacts.find((item) => item.id === suggestion.contactId);
@@ -3569,6 +3584,19 @@ function ImportView({ addContacts, state, setView, updateContact, setSelectedCon
                   <ul className="evidence-list">
                     {suggestion.evidence.slice(0, 4).map((item) => <li key={item}>{item}</li>)}
                   </ul>
+                  <div className="runtime-signal-panel">
+                    <strong>APIs e bibliotecas usadas nesta leitura</strong>
+                    <div className="runtime-signal-grid">
+                      {suggestion.runtimeSignals.map((signal) => (
+                        <div className={`runtime-signal ${signal.source} ${signal.status}`} key={`${suggestion.id}-${signal.name}`}>
+                          <span>{signal.source === "api" ? "API" : "LIB"}</span>
+                          <strong>{signal.name}</strong>
+                          <em>{signal.value}</em>
+                          <small>{signal.detail}</small>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                   <div className="tag-cloud compact">
                     {suggestion.tags.slice(0, 6).map((tag) => <span className={`tag-chip ${tagToneClass(tag)}`} key={tag}>{tag}</span>)}
                   </div>
@@ -3594,6 +3622,7 @@ function ImportView({ addContacts, state, setView, updateContact, setSelectedCon
                 {contactEnrichmentApiCatalog.map((api) => (
                   <div key={api.id}>
                     <strong>{api.name}</strong>
+                    <em className={`api-status ${api.status}`}>{api.status.replace("_", " ")}</em>
                     <span>{api.useCase}</span>
                     <small>{api.limitation}</small>
                   </div>

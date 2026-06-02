@@ -144,6 +144,14 @@ export interface EnrichmentLibraryDefinition {
   implemented: boolean;
 }
 
+export interface EnrichmentRuntimeSignal {
+  source: "api" | "library";
+  name: string;
+  status: "rodando" | "ativo" | "preparado" | "depende_chave" | "restrito";
+  value: string;
+  detail: string;
+}
+
 export interface EnrichmentSuggestion {
   id: string;
   contactId: string;
@@ -158,6 +166,7 @@ export interface EnrichmentSuggestion {
   confidence: number;
   evidence: string[];
   tags: string[];
+  runtimeSignals: EnrichmentRuntimeSignal[];
   status: "needs_review" | "suggested" | "applied" | "ignored";
 }
 
