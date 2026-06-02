@@ -232,18 +232,29 @@ label {
   background: var(--bg);
 }
 
+.topbar > div:first-child,
+.topbar-actions {
+  min-width: 0;
+}
+
+.topbar-actions {
+  justify-content: flex-end;
+}
+
 .topbar-kicker {
   display: block;
   color: var(--soft);
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .topbar h1 {
   margin: 2px 0 0;
   font-size: 28px;
   line-height: 1.1;
+  overflow-wrap: anywhere;
 }
 
 .topbar-actions,
@@ -288,11 +299,21 @@ label {
   padding: 0 15px;
   font-size: 14px;
   font-weight: 800;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .primary-button {
   background: var(--cyan);
   color: #0d1117;
+}
+
+.primary-button,
+.secondary-button,
+.danger-button {
+  line-height: 1.18;
+  text-align: center;
+  white-space: normal;
 }
 
 .secondary-button,
@@ -323,6 +344,20 @@ label {
 .profile-pill {
   background: var(--surface);
   border-color: var(--line);
+  max-width: min(48vw, 560px);
+  align-items: center;
+}
+
+.profile-pill .avatar {
+  flex: 0 0 auto;
+}
+
+.profile-pill span:last-child {
+  min-width: 0;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: normal;
 }
 
 .avatar {
@@ -2177,6 +2212,7 @@ label {
     rgba(13, 17, 23, 0.74);
   padding: 22px;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.18);
+  min-width: 0;
 }
 
 .customer-path-card.active {
@@ -2192,6 +2228,7 @@ label {
   margin: 12px 0 8px;
   font-size: 24px;
   line-height: 1.12;
+  overflow-wrap: anywhere;
 }
 
 .customer-path-card p,
@@ -2199,6 +2236,7 @@ label {
 .customer-mode-panel p {
   color: var(--muted);
   line-height: 1.58;
+  overflow-wrap: anywhere;
 }
 
 .landing-feature-card {
@@ -2465,6 +2503,10 @@ label {
   box-shadow: var(--shadow);
 }
 
+.hero-panel > div {
+  min-width: 0;
+}
+
 .command-center {
   position: relative;
   overflow: hidden;
@@ -2474,6 +2516,7 @@ label {
   margin: 0;
   font-size: clamp(30px, 3.4vw, 46px);
   line-height: 1.06;
+  overflow-wrap: anywhere;
 }
 
 .hero-panel p {
@@ -2481,6 +2524,7 @@ label {
   color: var(--muted);
   line-height: 1.65;
   font-size: 17px;
+  overflow-wrap: anywhere;
 }
 
 .mini-map {
@@ -2553,10 +2597,12 @@ label {
   display: grid;
   gap: 10px;
   align-content: start;
+  min-width: 0;
 }
 
 .customer-mode-panel p {
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .customer-mode-panel .secondary-button {
@@ -2576,6 +2622,7 @@ label {
   color: var(--text);
   padding: 13px;
   text-align: left;
+  min-width: 0;
 }
 
 .onboarding-strip button > span {
@@ -2592,12 +2639,16 @@ label {
 }
 
 .onboarding-strip strong {
+  min-width: 0;
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .onboarding-strip small {
   color: var(--muted);
   font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .metric-card {
@@ -2609,17 +2660,24 @@ label {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
+  min-width: 0;
+}
+
+.metric-card > div {
+  min-width: 0;
 }
 
 .metric-card strong {
   display: block;
   font-size: 31px;
   line-height: 1;
+  overflow-wrap: anywhere;
 }
 
 .metric-card span {
   color: var(--muted);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .metric-card.cyan svg { color: var(--cyan); }
@@ -5591,7 +5649,20 @@ label {
   }
 
   .mobile-tabs {
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    border-radius: 16px;
+    padding: 6px;
+  }
+
+  .mobile-tabs button {
+    min-height: 48px;
+    padding: 6px 2px;
+    font-size: 9px;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
   }
 }
 
