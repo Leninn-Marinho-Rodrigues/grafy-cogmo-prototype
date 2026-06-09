@@ -3436,6 +3436,7 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
   const [ruleTagsDraft, setRuleTagsDraft] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [nameInitialFilters, setNameInitialFilters] = useState<string[]>([]);
+  const [contactSortMode, setContactSortMode] = useState<"relevance" | "name" | "updated">("relevance");
   const savedRules = state.savedFilterRules ?? [];
   const activeRule = savedRules.find((rule) => rule.id === state.activeFilterRuleId);
   const suggestions = getMergeSuggestions(state.contacts);
@@ -3535,11 +3536,35 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     }
   };
 
-  const contacts = useMemo(() => {
+  const filteredContacts = useMemo(() => {
     const filtered = state.contacts.filter((contact) => contactMatchesGraphFilters(contact, activeFilters, query, state.groups));
     const searched = query ? searchContacts(filtered, query) : filtered;
     return searched.filter((contact) => contactMatchesNameInitials(contact, nameInitialFilters));
   }, [activeFilters, nameInitialFilters, query, state.contacts, state.groups]);
+
+  const contacts = useMemo(() => {
+    const scoreContact = (contact: Contact) => {
+      const taxonomy = getContactTaxonomyTags(contact, state.groups).map(normalizeGraphTag);
+      const filterHits = activeFilters.filter((filter) => taxonomy.includes(normalizeGraphTag(filter))).length * 20;
+      const queryHit = query.trim() && searchContacts([contact], query).length > 0 ? 14 : 0;
+      const crmCompleteness = [
+        contact.emails.length > 0,
+        contact.phones.length > 0,
+        Boolean(contact.customFields.empresa),
+        Boolean(contact.customFields.cargo),
+        Boolean(contact.customFields.area),
+        Boolean(contact.currentDemand || contact.problemSolves)
+      ].filter(Boolean).length;
+      return filterHits + queryHit + crmCompleteness;
+    };
+
+    return [...filteredContacts].sort((first, second) => {
+      if (contactSortMode === "name") return first.name.localeCompare(second.name, "pt-BR");
+      if (contactSortMode === "updated") return new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime();
+      return scoreContact(second) - scoreContact(first) || first.name.localeCompare(second.name, "pt-BR");
+    });
+  }, [activeFilters, contactSortMode, filteredContacts, query, state.groups]);
+
   const selectedVisibleContact = selectedContact && contacts.some((contact) => contact.id === selectedContact.id)
     ? selectedContact
     : contacts[0];
@@ -3555,12 +3580,37 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     : hasActiveContactFilter
       ? [...activeFilters, ...nameInitialFilters.map((initial) => `Nome ${initial}`), query.trim()].filter(Boolean).join(" + ")
       : "Todos os contatos";
+  const activeCriteria = [
+    ...activeFilters.map((filter) => ({ key: `filter:${filter}`, label: filter, type: "tag" as const })),
+    ...nameInitialFilters.map((initial) => ({ key: `name:${initial}`, label: `Nome ${initial}`, type: "name" as const })),
+    ...(query.trim() ? [{ key: "query", label: query.trim(), type: "query" as const }] : [])
+  ];
+  const removeCriterion = (criterion: typeof activeCriteria[number]) => {
+    setState((current) => ({ ...current, activeFilterRuleId: undefined }));
+    if (criterion.type === "tag") setActiveFilters((current) => current.filter((item) => normalizeGraphTag(item) !== normalizeGraphTag(criterion.label)));
+    if (criterion.type === "name") setNameInitialFilters((current) => current.filter((item) => `Nome ${item}` !== criterion.label));
+    if (criterion.type === "query") setQuery("");
+  };
+  const getContactResultSignals = (contact: Contact) => {
+    const taxonomy = getContactTaxonomyTags(contact, state.groups);
+    const normalizedTaxonomy = taxonomy.map(normalizeGraphTag);
+    const matchedFilters = activeFilters.filter((filter) => normalizedTaxonomy.includes(normalizeGraphTag(filter)));
+    return unique([
+      ...matchedFilters,
+      contact.ddd ? formatDddShortLocation(contact.ddd) : "",
+      String(contact.customFields.cargo ?? ""),
+      String(contact.customFields.area ?? ""),
+      contact.source
+    ].filter(Boolean)).slice(0, 5);
+  };
   const applyCrmFilter = (value: string, mode: "query" | "filter" = "query") => {
     const cleanValue = value.trim();
     if (!cleanValue) return;
     setState((current) => ({ ...current, activeFilterRuleId: undefined }));
     if (mode === "filter") {
-      setActiveFilters([cleanValue]);
+      setActiveFilters((current) =>
+        current.some((item) => normalizeGraphTag(item) === normalizeGraphTag(cleanValue)) ? current : [...current, cleanValue]
+      );
       setQuery("");
     } else {
       setActiveFilters([]);
@@ -3644,18 +3694,132 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
               <h3>{filterSummaryLabel}</h3>
               <p>
                 {hasActiveContactFilter
-                  ? "Somente contatos que respeitam as regras atuais aparecem aqui."
-                  : "Sem filtro ativo, todos os contatos aparecem em cards de leitura rápida."}
+                  ? "Somente contatos que respeitam as regras atuais aparecem aqui. Clique em empresa, setor, cargo ou região para refinar."
+                  : "Sem filtro ativo, todos os contatos aparecem em uma lista CRM para leitura rápida."}
               </p>
             </div>
-            <strong>{contacts.length} de {state.contacts.length}</strong>
+            <div className="contact-results-actions">
+              <strong>{contacts.length} de {state.contacts.length}</strong>
+              <label>
+                Ordenar
+                <select value={contactSortMode} onChange={(event) => setContactSortMode(event.target.value as typeof contactSortMode)}>
+                  <option value="relevance">Mais relevantes</option>
+                  <option value="name">Nome A-Z</option>
+                  <option value="updated">Atualizados</option>
+                </select>
+              </label>
+            </div>
           </div>
+
+          {activeCriteria.length > 0 && (
+            <div className="contact-active-criteria" aria-label="Critérios ativos">
+              <span>Critérios ativos</span>
+              {activeCriteria.map((criterion) => (
+                <button key={criterion.key} type="button" onClick={() => removeCriterion(criterion)}>
+                  {criterion.label}
+                  <X size={13} />
+                </button>
+              ))}
+              <button type="button" className="ghost" onClick={clearActiveRule}>
+                Limpar tudo
+              </button>
+            </div>
+          )}
+
           {locationSummary.length > 0 && (
             <div className="contact-results-regions">
               <MapPin size={15} />
               <span>Regiões em foco: {locationSummary.join(" · ")}</span>
             </div>
           )}
+
+          <div className="contact-result-list">
+            {contacts.map((contact) => {
+              const company = String(contact.customFields.empresa ?? "").trim();
+              const role = String(contact.customFields.cargo ?? "").trim();
+              const area = String(contact.customFields.area ?? "").trim();
+              const region = contact.ddd ? formatDddShortLocation(contact.ddd) : "";
+              const signals = getContactResultSignals(contact);
+              return (
+                <article
+                  key={contact.id}
+                  className={`contact-result-card ${selectedVisibleContact?.id === contact.id ? "active" : ""}`}
+                >
+                  <button type="button" className="contact-result-main" onClick={() => setSelectedContactId(contact.id)}>
+                    <span className="contact-result-top">
+                      <span className="avatar">{initials(contact.name)}</span>
+                      <span>
+                        <strong>{contact.name}</strong>
+                        <small>{contact.headline || contact.description || "Contato sem descrição"}</small>
+                      </span>
+                      {contact.isPublic && <Eye size={15} />}
+                    </span>
+                    <span className="contact-result-body">
+                      <span className="contact-result-meta">
+                        {company && (
+                          <em><Building2 size={13} />{company}</em>
+                        )}
+                        {role && (
+                          <em><BriefcaseBusiness size={13} />{role}</em>
+                        )}
+                        {area && (
+                          <em><Tags size={13} />{area}</em>
+                        )}
+                        {region && (
+                          <em><MapPin size={13} />{region}</em>
+                        )}
+                      </span>
+                      <span className="contact-result-intel">
+                        <b>Demanda</b>
+                        <small>{contact.currentDemand || "Nenhuma demanda informada ainda."}</small>
+                      </span>
+                      <span className="contact-result-intel solution">
+                        <b>Resolve</b>
+                        <small>{contact.problemSolves || contact.description || "Ainda sem solução descrita."}</small>
+                      </span>
+                    </span>
+                  </button>
+
+                  <div className="contact-result-quickfilters" aria-label={`Refinar por ${contact.name}`}>
+                    {company && (
+                      <button type="button" onClick={() => applyCrmFilter(company, "query")}>
+                        <Building2 size={13} />
+                        Empresa
+                      </button>
+                    )}
+                    {area && (
+                      <button type="button" onClick={() => applyCrmFilter(area, "filter")}>
+                        <Tags size={13} />
+                        Setor
+                      </button>
+                    )}
+                    {role && (
+                      <button type="button" onClick={() => applyCrmFilter(role, "filter")}>
+                        <BriefcaseBusiness size={13} />
+                        Cargo
+                      </button>
+                    )}
+                    {contact.ddd && (
+                      <button type="button" onClick={() => applyCrmFilter(`DDD ${contact.ddd}`, "filter")}>
+                        <MapPin size={13} />
+                        Região
+                      </button>
+                    )}
+                  </div>
+
+                  {signals.length > 0 && (
+                    <div className="contact-match-signals">
+                      <span>Entrou por</span>
+                      {signals.map((signal) => <em key={signal}>{signal}</em>)}
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+            {contacts.length === 0 && (
+              <EmptyState title="Nenhum contato nesse cruzamento" body="Remova um filtro ou pesquise por outro cargo, área, DDD, estado ou região." />
+            )}
+          </div>
         </section>
 
         {visibleSuggestions.length > 0 && (
@@ -3699,50 +3863,6 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
           </div>
         )}
 
-        <div className="contact-card-grid">
-          {contacts.map((contact) => (
-            <button
-              key={contact.id}
-              className={`contact-result-card ${selectedVisibleContact?.id === contact.id ? "active" : ""}`}
-              onClick={() => setSelectedContactId(contact.id)}
-            >
-              <span className="contact-result-top">
-                <span className="avatar">{initials(contact.name)}</span>
-                <span>
-                  <strong>{contact.name}</strong>
-                  <small>{contact.headline || contact.description || "Contato sem descrição"}</small>
-                </span>
-                {contact.isPublic && <Eye size={15} />}
-              </span>
-              <span className="contact-result-meta">
-                {String(contact.customFields.empresa ?? "").trim() && (
-                  <em><Building2 size={13} />{String(contact.customFields.empresa)}</em>
-                )}
-                {String(contact.customFields.cargo ?? "").trim() && (
-                  <em><BriefcaseBusiness size={13} />{String(contact.customFields.cargo)}</em>
-                )}
-                {String(contact.customFields.area ?? "").trim() && (
-                  <em><Tags size={13} />{String(contact.customFields.area)}</em>
-                )}
-                {contact.ddd && (
-                  <em><MapPin size={13} />{formatDddShortLocation(contact.ddd)}</em>
-                )}
-              </span>
-              <span className="contact-result-intel">
-                <b>Demanda</b>
-                <small>{contact.currentDemand || "Nenhuma demanda informada ainda."}</small>
-              </span>
-              <span className="row-tags">
-                {contact.tags.slice(0, 4).map((item) => (
-                  <em key={item}>{item}</em>
-                ))}
-              </span>
-            </button>
-          ))}
-          {contacts.length === 0 && (
-            <EmptyState title="Nenhum contato nesse cruzamento" body="Remova um filtro ou pesquise por outro cargo, área, DDD, estado ou região." />
-          )}
-        </div>
       </section>
 
       <section className="detail-panel">
