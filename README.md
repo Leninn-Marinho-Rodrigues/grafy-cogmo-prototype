@@ -15,6 +15,8 @@
   ·
   <a href="docs/guides/product-tour.md">Tour do produto</a>
   ·
+  <a href="docs/guides/conversa-leiga-como-o-grafy-funciona.md">Explicação leiga</a>
+  ·
   <a href="docs/guides/architecture.md">Arquitetura</a>
   ·
   <a href="docs/guides/demo-script.md">Roteiro de demo</a>
@@ -45,6 +47,7 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 | Landing/onboarding | Entrada central em `#/` perguntando o tipo de negócio, com caminhos dedicados em `#/empresarios` para B2C e `#/hubs-eventos` para B2B/B2B2C. O primeiro acesso agora força a lógica certa: vincular/importar dados reais antes de abrir o workspace. |
 | Dashboard | Métricas da base, atalhos, oportunidades e visão geral do workspace. |
 | Contatos | CRUD inicial, tags, demandas, problema que resolve, links, grupos e status público/privado. |
+| Regras salvas | Filtros persistidos por tags, DDD, cargo, área, setor e busca textual. A lista e a ficha do contato respeitam a regra ativa. |
 | Importação | Google Contacts quando `VITE_GOOGLE_CLIENT_ID` existe; Google Agenda opcional por `VITE_GOOGLE_IMPORT_CALENDAR=true`; Apple ID para identidade, Apple Contacts por `.vcf`, Apple Agenda por `.ics`, e bases de hubs por Excel/CSV/JSON. |
 | Grafo | Nós de contatos, tags, DDDs/localidade, fontes, grupos, demandas e soluções; pan, zoom, filtros cumulativos e inspetor lateral. |
 | Rede pública | Perfis opt-in, cards públicos, filtros e separação clara da base privada. |
@@ -105,9 +108,19 @@ Mais detalhes em [docs/guides/architecture.md](docs/guides/architecture.md).
 - **Frontend:** React 19, TypeScript, Vite.
 - **UI e ícones:** CSS próprio, lucide-react, motion.
 - **PWA:** manifest, service worker e página offline.
-- **Persistência atual:** localStorage para protótipo demonstrativo.
+- **Persistência atual:** localStorage para protótipo demonstrativo, incluindo contatos importados, grupos, cores do grafo, regras salvas e sessão local.
 - **Deploy:** GitHub Pages via GitHub Actions.
 - **Evolução recomendada:** Supabase Auth, Postgres com RLS, Google People API, Google Calendar API, Apple Contacts/EventKit para app nativo, OpenAPI/Swagger e copiloto com ferramentas confirmadas.
+
+## Regras, filtros e grupos
+
+O Grafy agora separa três conceitos que precisam funcionar bem para empresário individual e para empresa/hub:
+
+- **Grupos/pastas:** guardam cor, tags e contatos fixados. Uma pasta com `ddd61`, `Brasília` ou `DF` encontra automaticamente contatos compatíveis e pode fixar esses contatos com **Puxar encontrados**.
+- **Regras salvas:** são filtros persistidos por tags e busca. Exemplos: `financeiro`, `ddd61`, `marketing + parcerias`, `diretor + RH`. Ao aplicar uma regra, a lista de contatos e a ficha aberta mostram apenas contatos que respeitam aquela regra.
+- **Filtros rápidos:** continuam disponíveis para exploração livre no momento. Quando fizer sentido, o usuário salva o filtro atual como regra para reutilizar depois.
+
+No protótipo tudo fica no navegador. Na evolução com backend, estes objetos devem ir para tabelas próprias no Postgres/Supabase: `contacts`, `groups`, `group_contacts`, `saved_filter_rules`, `custom_fields`, `custom_field_values` e regras de Row Level Security por usuário/organização.
 
 ## Rodando localmente
 
@@ -226,6 +239,7 @@ Links úteis:
 
 ## Documentação
 
+- [Conversa leiga: como o Grafy funciona](docs/guides/conversa-leiga-como-o-grafy-funciona.md)
 - [Tour do produto](docs/guides/product-tour.md)
 - [Arquitetura e decisões técnicas](docs/guides/architecture.md)
 - [Roteiro de demo](docs/guides/demo-script.md)

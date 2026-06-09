@@ -1,4 +1,4 @@
-import type { Contact, CustomField, GrafyState, Group } from "./types";
+import type { Contact, CustomField, GrafyState, GraphColorRule, Group, SavedFilterRule } from "./types";
 
 const timestamp = "2026-05-28T12:00:00.000Z";
 
@@ -537,6 +537,45 @@ export const seedCustomFields: CustomField[] = [
   }
 ];
 
+export const seedGraphColorRules: GraphColorRule[] = [
+  { id: "color_role_manager", scope: "cargo", value: "gerente", label: "Gerentes", color: "#66d9ff", enabled: true },
+  { id: "color_role_director", scope: "cargo", value: "diretor", label: "Diretoria", color: "#ffd166", enabled: true },
+  { id: "color_area_marketing", scope: "area", value: "marketing", label: "Marketing", color: "#ff7aa8", enabled: true },
+  { id: "color_area_tech", scope: "area", value: "tecnologia", label: "Tecnologia", color: "#60f2d5", enabled: true },
+  { id: "color_area_finance", scope: "area", value: "finanças", label: "Finanças", color: "#31d17f", enabled: true },
+  { id: "color_region_sp", scope: "ddd", value: "11", label: "DDD 11 · SP", color: "#a993ff", enabled: true }
+];
+
+export const seedSavedFilterRules: SavedFilterRule[] = [
+  {
+    id: "rule_decisores_financeiros",
+    name: "Decisores financeiros",
+    description: "CFOs, consultores e contatos ligados ao financeiro.",
+    tags: ["financeiro"],
+    color: "#31d17f",
+    createdAt: timestamp,
+    updatedAt: timestamp
+  },
+  {
+    id: "rule_brasilia_ddd61",
+    name: "BrasÃ­lia / DDD 61",
+    description: "Contatos filtrados por DDD 61, DF ou BrasÃ­lia.",
+    tags: ["ddd61"],
+    color: "#66d9ff",
+    createdAt: timestamp,
+    updatedAt: timestamp
+  },
+  {
+    id: "rule_marketing_parcerias",
+    name: "Marketing e parcerias",
+    description: "Pessoas de marketing, comunidade, eventos e parcerias.",
+    tags: ["marketing", "parcerias"],
+    color: "#ff7aa8",
+    createdAt: timestamp,
+    updatedAt: timestamp
+  }
+];
+
 export const initialState: GrafyState = {
   schemaVersion: "dual-landing-apple-import-2026-05-29",
   profile: {
@@ -559,6 +598,9 @@ export const initialState: GrafyState = {
     contactIds: []
   })),
   customFields: seedCustomFields,
+  graphColorRules: seedGraphColorRules,
+  savedFilterRules: seedSavedFilterRules,
+  activeFilterRuleId: undefined,
   mergeDecisions: {},
   chatMessages: [
     {

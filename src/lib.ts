@@ -12,6 +12,8 @@ import type {
   EnrichmentSuggestion,
   EnrichmentSuggestedUpdate,
   GrafyState,
+  Group,
+  GraphColorRule,
   GraphEdge,
   GraphNode,
   MergeSuggestion
@@ -123,6 +125,7 @@ export const getDddLocationSignals = (ddd?: string) => {
   if (!ddd) return [];
   const location = getDddLocation(ddd);
   return unique([
+    `ddd${ddd}`,
     `DDD ${ddd}`,
     location ? `DDD ${ddd} · ${location.state}` : "",
     location ? `DDD ${ddd} · ${location.label}` : "",
@@ -1237,6 +1240,53 @@ export const getContactTaxonomyTags = (contact: Contact, groups: GrafyState["gro
   ]).filter(Boolean);
 };
 
+const normalizeCompactSignal = (value: string) => normalize(value).replace(/[^a-z0-9]/g, "");
+
+const getSmartGroupSignals = (contact: Contact, groups: GrafyState["groups"] = []) => {
+  const ddd = contact.ddd ?? "";
+  const location = getDddLocation(ddd);
+  return unique([
+    ...getContactTaxonomyTags(contact, groups),
+    contact.name,
+    contact.headline,
+    contact.description,
+    contact.currentDemand,
+    contact.problemSolves,
+    contact.notes,
+    ...contact.phones,
+    ...contact.emails,
+    ddd,
+    ddd ? `DDD ${ddd}` : "",
+    ddd ? `ddd${ddd}` : "",
+    formatDddShortLocation(ddd),
+    formatDddLocation(ddd),
+    location?.state ?? "",
+    location?.region ?? "",
+    location?.label ?? ""
+  ]).filter(Boolean);
+};
+
+export const contactMatchesGroupTags = (contact: Contact, group: Group, groups: GrafyState["groups"] = []) => {
+  const rules = (group.tags ?? []).map((tag) => tag.trim()).filter(Boolean);
+  if (!rules.length) return false;
+  const groupsWithoutCurrent = groups.filter((item) => item.id !== group.id);
+  const signals = getSmartGroupSignals(contact, groupsWithoutCurrent).map((signal) => ({
+    normalized: normalize(signal),
+    compact: normalizeCompactSignal(signal)
+  }));
+  return rules.some((rule) => {
+    const normalizedRule = normalize(rule);
+    const compactRule = normalizeCompactSignal(rule);
+    if (!normalizedRule || !compactRule) return false;
+    return signals.some((signal) => (
+      signal.normalized === normalizedRule ||
+      signal.compact === compactRule ||
+      (normalizedRule.length >= 3 && signal.normalized.includes(normalizedRule)) ||
+      (compactRule.length >= 4 && signal.compact.includes(compactRule))
+    ));
+  });
+};
+
 export const graphFilterGroups = [
   { label: "Cargos", tags: ["CEO", "CTO", "CFO", "diretor", "diretoria", "decisor", "founder", "fundador", "head", "gerente", "especialista", "consultor", "fornecedor", "investidor", "mentor"] },
   { label: "Áreas", tags: ["marketing", "vendas", "finanças", "financeiro", "investimentos", "tecnologia", "produto", "jurídico", "operações", "eventos", "segurança", "RH", "customer success", "construção"] },
@@ -1309,28 +1359,32 @@ export const mergeContacts = (primary: Contact, duplicate: Contact): Contact => 
   updatedAt: new Date().toISOString()
 });
 
-export const buildOpportunityMatches = (contacts: Contact[]) =>
-  contacts
-    .flatMap((seeker) =>
-      contacts
-        .filter((solver) => solver.id !== seeker.id)
-        .map((solver) => {
-          const seekerSignals = getContactTaxonomyTags(seeker);
-          const solverSignals = getContactTaxonomyTags(solver);
-          const demand = normalize(`${seeker.currentDemand} ${seekerSignals.join(" ")}`);
-          const solution = normalize(`${solver.problemSolves} ${solver.description} ${solverSignals.join(" ")}`);
-          const matchingTags = seekerSignals.filter((tag) => solution.includes(normalize(tag)));
-          const demandTerms = unique(demand.split(/\s+/).filter((term) => term.length > 4));
-          const termHits = demandTerms.filter((term) => solution.includes(term));
-          const sameGroup = seeker.groupIds.some((groupId) => solver.groupIds.includes(groupId));
-          const sameDdd = seeker.ddd && seeker.ddd === solver.ddd;
-          const score = matchingTags.length * 20 + termHits.length * 12 + (sameGroup ? 15 : 0) + (sameDdd ? 8 : 0);
-          return { seeker, solver, score, reason: unique([...matchingTags, ...termHits]).slice(0, 4).join(", ") };
-        })
-        .filter((match) => match.score >= 24)
-    )
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8);
+const DEFAULT_OPPORTUNITY_CANDIDATE_LIMIT = 220;
+
+export const buildOpportunityMatches = (contacts: Contact[], candidateLimit = DEFAULT_OPPORTUNITY_CANDIDATE_LIMIT) => {
+  const candidates = contacts.slice(0, candidateLimit);
+  const signalCache = new Map(candidates.map((contact) => [contact.id, getContactTaxonomyTags(contact)]));
+  const matches: Array<{ seeker: Contact; solver: Contact; score: number; reason: string }> = [];
+  for (const seeker of candidates) {
+    const seekerSignals = signalCache.get(seeker.id) ?? [];
+    const demand = normalize(`${seeker.currentDemand} ${seekerSignals.join(" ")}`);
+    const demandTerms = unique(demand.split(/\s+/).filter((term) => term.length > 4)).slice(0, 10);
+    for (const solver of candidates) {
+      if (solver.id === seeker.id) continue;
+      const solverSignals = signalCache.get(solver.id) ?? [];
+      const solution = normalize(`${solver.problemSolves} ${solver.description} ${solverSignals.join(" ")}`);
+      const matchingTags = seekerSignals.filter((tag) => solution.includes(normalize(tag))).slice(0, 6);
+      const termHits = demandTerms.filter((term) => solution.includes(term));
+      const sameGroup = seeker.groupIds.some((groupId) => solver.groupIds.includes(groupId));
+      const sameDdd = seeker.ddd && seeker.ddd === solver.ddd;
+      const score = matchingTags.length * 20 + termHits.length * 12 + (sameGroup ? 15 : 0) + (sameDdd ? 8 : 0);
+      if (score >= 24) {
+        matches.push({ seeker, solver, score, reason: unique([...matchingTags, ...termHits]).slice(0, 4).join(", ") });
+      }
+    }
+  }
+  return matches.sort((a, b) => b.score - a.score).slice(0, 8);
+};
 
 export const parseCsvContacts = (csv: string): Partial<Contact>[] => {
   return parseTabularContacts(parseDelimitedRows(csv), "CSV");
@@ -1511,6 +1565,31 @@ export const contactMatchesGraphFilters = (contact: Contact, filters: string[], 
   return queryMatches && filtersMatch;
 };
 
+type GraphBuildOptions = {
+  includeOpportunityMatches?: boolean;
+  colorRules?: GraphColorRule[];
+};
+
+const graphConfig: {
+  maxContactNodes: number;
+  maxTagNodes: number;
+  maxDddNodes: number;
+  maxSourceNodes: number;
+  maxSignalEdges: number;
+  maxEdges: number;
+  affinityPairNodeLimit: number;
+  opportunityCandidateLimit: number;
+} = {
+  maxContactNodes: 20,
+  maxTagNodes: 24,
+  maxDddNodes: 8,
+  maxSourceNodes: 6,
+  maxSignalEdges: 180,
+  maxEdges: 3600,
+  affinityPairNodeLimit: 7,
+  opportunityCandidateLimit: 30
+};
+
 const nodeColorByType: Record<GraphNode["type"], string> = {
   contact: "#66e7ff",
   public: "#ffd166",
@@ -1522,6 +1601,54 @@ const nodeColorByType: Record<GraphNode["type"], string> = {
   solution: "#31d17f"
 };
 
+const isColorRuleMatch = (rule: GraphColorRule, values: string[]) => {
+  const normalizedRule = normalize(rule.value);
+  return Boolean(normalizedRule) && values.some((value) => {
+    const normalizedValue = normalize(value);
+    return normalizedValue === normalizedRule || normalizedValue.includes(normalizedRule);
+  });
+};
+
+const getGraphRuleColor = (rules: GraphColorRule[], scope: GraphColorRule["scope"], values: string[]) =>
+  rules.find((rule) => rule.enabled && rule.scope === scope && isColorRuleMatch(rule, values))?.color;
+
+const getContactRuleValues = (
+  contact: Contact,
+  meta: { taxonomy: string[]; area: string; cargo: string; tipoNegocio: string } | undefined,
+  scope: GraphColorRule["scope"]
+) => {
+  const location = getDddLocation(contact.ddd);
+  if (scope === "cargo") return [meta?.cargo ?? "", contact.headline, ...contact.tags];
+  if (scope === "area") return [meta?.area ?? "", ...contact.tags];
+  if (scope === "tipoNegocio") return [meta?.tipoNegocio ?? "", ...contact.tags];
+  if (scope === "ddd") {
+    return [
+      contact.ddd ?? "",
+      contact.ddd ? `DDD ${contact.ddd}` : "",
+      formatDddShortLocation(contact.ddd),
+      formatDddLocation(contact.ddd),
+      location?.state ?? "",
+      location?.region ?? "",
+      location?.label ?? ""
+    ];
+  }
+  if (scope === "source") return [contact.source];
+  return meta?.taxonomy ?? contact.tags;
+};
+
+const getContactRuleColor = (
+  contact: Contact,
+  meta: { taxonomy: string[]; area: string; cargo: string; tipoNegocio: string } | undefined,
+  rules: GraphColorRule[]
+) => {
+  for (const rule of rules) {
+    if (rule.enabled && isColorRuleMatch(rule, getContactRuleValues(contact, meta, rule.scope))) {
+      return rule.color;
+    }
+  }
+  return "";
+};
+
 const addPairEdges = (
   contacts: Contact[],
   edges: GraphEdge[],
@@ -1529,14 +1656,16 @@ const addPairEdges = (
   type: string,
   color: string,
   weight: number,
-  matchedIds: Set<string>
+  matchedIds: Set<string>,
+  options: { pairLimit?: number; pushEdge?: (edge: GraphEdge) => void } = {}
 ) => {
-  const scoped = contacts.slice(0, 7);
+  const scoped = contacts.slice(0, options.pairLimit ?? 7);
+  const pushEdge = options.pushEdge ?? ((edge: GraphEdge) => edges.push(edge));
   for (let i = 0; i < scoped.length; i += 1) {
     for (let j = i + 1; j < scoped.length; j += 1) {
       const first = scoped[i];
       const second = scoped[j];
-      edges.push({
+      pushEdge({
         id: `${type}:${key}:${first.id}:${second.id}`,
         source: `contact:${first.id}`,
         target: `contact:${second.id}`,
@@ -1576,74 +1705,154 @@ const pickGraphTopics = (text: string, tags: string[] = []) => {
   return priorityGraphTopics.filter((topic) => haystack.includes(normalize(topic))).slice(0, 4);
 };
 
-export const buildGraph = (state: GrafyState, query = "", groupId?: string, activeFilters: string[] = []) => {
-  const scopedContacts = groupId ? state.contacts.filter((contact) => contact.groupIds.includes(groupId)) : state.contacts;
+const getContactOrbitPosition = (index: number, total: number, centerX: number, centerY: number) => {
+  if (total <= 10) {
+    const angle = (Math.PI * 2 * index) / Math.max(total, 1) - Math.PI / 2;
+    return {
+      x: centerX + Math.cos(angle) * 210,
+      y: centerY + Math.sin(angle) * 194
+    };
+  }
+
+  const outerCount = Math.ceil(total * 0.6);
+  const isOuter = index < outerCount;
+  const ringIndex = isOuter ? index : index - outerCount;
+  const ringCount = isOuter ? outerCount : total - outerCount;
+  const angleOffset = isOuter ? -Math.PI / 2 : -Math.PI / 2 + Math.PI / Math.max(outerCount, 1);
+  const angle = (Math.PI * 2 * ringIndex) / Math.max(ringCount, 1) + angleOffset;
+  const radiusX = isOuter ? 238 : 150;
+  const radiusY = isOuter ? 212 : 132;
+
+  return {
+    x: centerX + Math.cos(angle) * radiusX,
+    y: centerY + Math.sin(angle) * radiusY
+  };
+};
+
+export const buildGraph = (
+  state: GrafyState,
+  query = "",
+  groupId?: string,
+  activeFilters: string[] = [],
+  options: GraphBuildOptions = {}
+) => {
+  const activeGroup = groupId ? state.groups.find((group) => group.id === groupId) : undefined;
+  const scopedContacts = activeGroup
+    ? state.contacts.filter((contact) => contact.groupIds.includes(activeGroup.id) || contactMatchesGroupTags(contact, activeGroup, state.groups))
+    : state.contacts;
   const contacts = scopedContacts;
-  const matchedContactIds = new Set(
-    contacts
-      .filter((contact) => contactMatchesGraphFilters(contact, activeFilters, query, state.groups))
-      .map((contact) => contact.id)
-  );
   const hasFocus = Boolean(query.trim()) || activeFilters.length > 0;
+  const config = graphConfig;
+  const colorRules = (options.colorRules ?? state.graphColorRules ?? []).filter((rule) => rule.enabled);
+  const normalizedQuery = normalize(query);
+  const normalizedFilters = activeFilters.map(normalize);
+  const contactMeta = new Map<string, {
+    taxonomy: string[];
+    taxonomySet: Set<string>;
+    haystack: string;
+    area: string;
+    cargo: string;
+    tipoNegocio: string;
+  }>();
+  const taxonomyContacts = new Map<string, { label: string; contacts: Contact[] }>();
+  const matchedContactIds = new Set<string>();
+
+  contacts.forEach((contact) => {
+    const taxonomy = getContactTaxonomyTags(contact, state.groups);
+    const taxonomySet = new Set(taxonomy.map(normalize));
+    const haystack = normalize([contactHaystack(contact), taxonomy.join(" ")].join(" "));
+    const queryMatches = !normalizedQuery || scoreContact(contact, query) > 0 || haystack.includes(normalizedQuery);
+    const filtersMatch = normalizedFilters.every((filter) => taxonomySet.has(filter));
+    if (queryMatches && filtersMatch) matchedContactIds.add(contact.id);
+    contactMeta.set(contact.id, {
+      taxonomy,
+      taxonomySet,
+      haystack,
+      area: customFieldText(contact, "area"),
+      cargo: customFieldText(contact, "cargo"),
+      tipoNegocio: customFieldText(contact, "tipoNegocio")
+    });
+    taxonomy.forEach((tag) => {
+      const normalizedTag = normalize(tag);
+      const item = taxonomyContacts.get(normalizedTag) ?? { label: tag, contacts: [] };
+      item.contacts.push(contact);
+      taxonomyContacts.set(normalizedTag, item);
+    });
+  });
+
+  const matchedContacts = contacts.filter((contact) => matchedContactIds.has(contact.id));
+  const nonMatchedContacts = contacts.filter((contact) => !matchedContactIds.has(contact.id));
+  const renderedContacts = contacts.length > config.maxContactNodes
+    ? [...matchedContacts.slice(0, config.maxContactNodes), ...nonMatchedContacts.slice(0, Math.max(0, config.maxContactNodes - matchedContacts.length))]
+    : contacts;
+  const renderedContactIds = new Set(renderedContacts.map((contact) => contact.id));
+  const hiddenContacts = contacts.filter((contact) => !renderedContactIds.has(contact.id));
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
+  const pushEdge = (edge: GraphEdge) => {
+    if (edges.length < config.maxEdges) edges.push(edge);
+  };
   const centerX = 480;
   const centerY = 315;
-  const contactRadius = 178;
-  const tagRadius = 270;
+  const tagRadiusX = 322;
+  const tagRadiusY = 284;
 
-  contacts.forEach((contact, index) => {
-    const angle = (Math.PI * 2 * index) / Math.max(contacts.length, 1) - Math.PI / 2;
-    const area = customFieldText(contact, "area");
-    const cargo = customFieldText(contact, "cargo");
+  renderedContacts.forEach((contact, index) => {
+    const position = getContactOrbitPosition(index, renderedContacts.length, centerX, centerY);
+    const meta = contactMeta.get(contact.id);
+    const ruleColor = getContactRuleColor(contact, meta, colorRules);
     nodes.push({
       id: `contact:${contact.id}`,
       label: contact.name,
       type: contact.isPublic ? "public" : "contact",
-      x: centerX + Math.cos(angle) * contactRadius,
-      y: centerY + Math.sin(angle) * contactRadius,
+      x: position.x,
+      y: position.y,
       contactId: contact.id,
       weight: 12 + contact.tags.length * 2,
-      color: contact.isPublic ? nodeColorByType.public : nodeColorByType.contact,
+      color: ruleColor || (contact.isPublic ? nodeColorByType.public : nodeColorByType.contact),
       isDimmed: hasFocus && !matchedContactIds.has(contact.id),
-      meta: unique([contact.headline || contact.source, area, cargo, formatDddLocation(contact.ddd)]).join(" · ")
+      meta: unique([contact.headline || contact.source, meta?.area ?? "", meta?.cargo ?? "", formatDddLocation(contact.ddd)]).join(" · ")
     });
   });
 
   const sourceTags = new Set(["Manual", "CSV", "JSON", "Excel", "Google Contacts", "Google Calendar", "Apple Contacts", "Apple Calendar", "Rede Pública", "Grupo"]);
-  const tags = getGraphFilterTags(contacts, state.groups)
+  const existingTags = [...taxonomyContacts.values()].map((item) => item.label);
+  const curatedTags = graphFilterGroups.flatMap((group) => group.tags);
+  const suggestedTags = curatedTags.filter((tag) => taxonomyContacts.has(normalize(tag)));
+  const remainingTags = existingTags.filter((tag) => !suggestedTags.some((suggestion) => normalize(suggestion) === normalize(tag))).slice(0, 16);
+  const tags = unique([...suggestedTags, ...remainingTags])
     .filter((tag) => !tag.startsWith("DDD ") && !sourceTags.has(tag))
-    .slice(0, 24);
+    .slice(0, config.maxTagNodes);
   tags.forEach((tag, index) => {
     const angle = (Math.PI * 2 * index) / Math.max(tags.length, 1) + Math.PI / 10;
     const nodeId = `tag:${tag}`;
-    const taggedContacts = contacts.filter((contact) =>
-      getContactTaxonomyTags(contact, state.groups).some((item) => normalize(item) === normalize(tag))
-    );
+    const taggedContacts = taxonomyContacts.get(normalize(tag))?.contacts ?? [];
+    const renderedTaggedContacts = taggedContacts.filter((contact) => renderedContactIds.has(contact.id)).slice(0, config.maxSignalEdges);
+    const tagColor = getGraphRuleColor(colorRules, "tag", [tag]);
     nodes.push({
       id: nodeId,
       label: tag,
       type: "tag",
-      x: centerX + Math.cos(angle) * tagRadius,
-      y: centerY + Math.sin(angle) * tagRadius,
+      x: centerX + Math.cos(angle) * tagRadiusX,
+      y: centerY + Math.sin(angle) * tagRadiusY,
       weight: 8,
-      color: nodeColorByType.tag,
+      color: tagColor || nodeColorByType.tag,
       isDimmed: hasFocus && !taggedContacts.some((contact) => matchedContactIds.has(contact.id))
     });
-    taggedContacts.forEach((contact) => {
-      edges.push({
+    renderedTaggedContacts.forEach((contact) => {
+      pushEdge({
         id: `${contact.id}-${tag}`,
         source: `contact:${contact.id}`,
         target: nodeId,
         type: "possui sinal",
         weight: 1,
-        color: nodeColorByType.tag,
+        color: tagColor || nodeColorByType.tag,
         isDimmed: hasFocus && !matchedContactIds.has(contact.id)
       });
     });
 
     if (["marketing", "finanças", "financeiro", "tecnologia", "jurídico", "operações", "diretoria", "decisor", "CEO", "CTO", "CFO", "B2B", "PME", "SaaS", "fornecedores"].some((focusTag) => normalize(focusTag) === normalize(tag))) {
-      addPairEdges(taggedContacts, edges, tag, "afinidade de tag", "#7dc7ff", 0.45, matchedContactIds);
+      addPairEdges(renderedTaggedContacts, edges, tag, "afinidade de tag", "#7dc7ff", 0.45, matchedContactIds, { pairLimit: config.affinityPairNodeLimit, pushEdge });
     }
   });
 
@@ -1661,8 +1870,8 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
       color: nodeColorByType.demand,
       isDimmed: hasFocus && !topicContacts.some((contact) => matchedContactIds.has(contact.id))
     });
-    topicContacts.forEach((contact) => {
-      edges.push({
+    topicContacts.filter((contact) => renderedContactIds.has(contact.id)).slice(0, config.maxSignalEdges).forEach((contact) => {
+      pushEdge({
         id: `${contact.id}-demand-${topic}`,
         source: `contact:${contact.id}`,
         target: nodeId,
@@ -1688,8 +1897,8 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
       color: nodeColorByType.solution,
       isDimmed: hasFocus && !topicContacts.some((contact) => matchedContactIds.has(contact.id))
     });
-    topicContacts.forEach((contact) => {
-      edges.push({
+    topicContacts.filter((contact) => renderedContactIds.has(contact.id)).slice(0, config.maxSignalEdges).forEach((contact) => {
+      pushEdge({
         id: `${contact.id}-solution-${topic}`,
         source: `contact:${contact.id}`,
         target: nodeId,
@@ -1707,17 +1916,24 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
     { type: "tipo de negócio", color: "#a371f7", get: (contact: Contact) => customFieldText(contact, "tipoNegocio") },
     { type: "mesmo DDD", color: "#60f2d5", get: (contact: Contact) => contact.ddd ?? "" }
   ].forEach((affinity) => {
-    unique(contacts.map(affinity.get).filter(Boolean)).forEach((value) => {
-      const relatedContacts = contacts.filter((contact) => normalize(affinity.get(contact)) === normalize(value));
+    const buckets = new Map<string, Contact[]>();
+    renderedContacts.forEach((contact) => {
+      const value = affinity.get(contact);
+      if (!value) return;
+      const normalizedValue = normalize(value);
+      buckets.set(normalizedValue, [...(buckets.get(normalizedValue) ?? []), contact]);
+    });
+    buckets.forEach((relatedContacts, value) => {
       if (relatedContacts.length > 1) {
-        addPairEdges(relatedContacts, edges, value, affinity.type, affinity.color, 0.38, matchedContactIds);
+        addPairEdges(relatedContacts, edges, value, affinity.type, affinity.color, 0.38, matchedContactIds, { pairLimit: config.affinityPairNodeLimit, pushEdge });
       }
     });
   });
 
-  const ddds = unique(contacts.map((contact) => contact.ddd).filter(Boolean)).slice(0, 8);
+  const ddds = unique(contacts.map((contact) => contact.ddd).filter((ddd): ddd is string => Boolean(ddd))).slice(0, config.maxDddNodes);
   ddds.forEach((ddd, index) => {
     const nodeId = `ddd:${ddd}`;
+    const dddColor = getGraphRuleColor(colorRules, "ddd", [ddd, `DDD ${ddd}`, formatDddShortLocation(ddd), formatDddLocation(ddd)]);
     nodes.push({
       id: nodeId,
       label: formatDddShortLocation(ddd),
@@ -1725,28 +1941,30 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
       x: 120,
       y: 90 + index * 70,
       weight: 7,
-      color: nodeColorByType.ddd,
+      color: dddColor || nodeColorByType.ddd,
       isDimmed: hasFocus && !contacts.some((contact) => contact.ddd === ddd && matchedContactIds.has(contact.id)),
       meta: formatDddLocation(ddd)
     });
     contacts
-      .filter((contact) => contact.ddd === ddd)
+      .filter((contact) => contact.ddd === ddd && renderedContactIds.has(contact.id))
+      .slice(0, config.maxSignalEdges)
       .forEach((contact) => {
-          edges.push({
+          pushEdge({
             id: `${contact.id}-ddd-${ddd}`,
             source: `contact:${contact.id}`,
             target: nodeId,
             type: "tem DDD",
             weight: 1,
-            color: nodeColorByType.ddd,
+            color: dddColor || nodeColorByType.ddd,
             isDimmed: hasFocus && !matchedContactIds.has(contact.id)
           });
       });
   });
 
-  const sources = unique(contacts.map((contact) => contact.source)).slice(0, 6);
+  const sources = unique(contacts.map((contact) => contact.source)).slice(0, config.maxSourceNodes);
   sources.forEach((source, index) => {
     const nodeId = `source:${source}`;
+    const sourceColor = getGraphRuleColor(colorRules, "source", [source]);
     nodes.push({
       id: nodeId,
       label: source,
@@ -1754,19 +1972,20 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
       x: 840,
       y: 112 + index * 76,
       weight: 7,
-      color: nodeColorByType.source,
+      color: sourceColor || nodeColorByType.source,
       isDimmed: hasFocus && !contacts.some((contact) => contact.source === source && matchedContactIds.has(contact.id))
     });
     contacts
-      .filter((contact) => contact.source === source)
+      .filter((contact) => contact.source === source && renderedContactIds.has(contact.id))
+      .slice(0, config.maxSignalEdges)
       .forEach((contact) => {
-        edges.push({
+        pushEdge({
           id: `${contact.id}-source-${source}`,
           source: `contact:${contact.id}`,
           target: nodeId,
           type: "importado de",
           weight: 1,
-          color: nodeColorByType.source,
+          color: sourceColor || nodeColorByType.source,
           isDimmed: hasFocus && !matchedContactIds.has(contact.id)
         });
       });
@@ -1787,9 +2006,10 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
         isDimmed: hasFocus && !group.contactIds.some((contactId) => matchedContactIds.has(contactId))
       });
       group.contactIds
-        .filter((contactId) => contacts.some((contact) => contact.id === contactId))
+        .filter((contactId) => renderedContactIds.has(contactId))
+        .slice(0, config.maxSignalEdges)
         .forEach((contactId) => {
-          edges.push({
+          pushEdge({
             id: `${contactId}-${group.id}`,
             source: `contact:${contactId}`,
             target: nodeId,
@@ -1801,29 +2021,40 @@ export const buildGraph = (state: GrafyState, query = "", groupId?: string, acti
         });
 
       addPairEdges(
-        contacts.filter((contact) => group.contactIds.includes(contact.id)),
+        renderedContacts.filter((contact) => group.contactIds.includes(contact.id)),
         edges,
         group.id,
         "mesma pasta",
         group.color || "#ffffff",
         0.5,
-        matchedContactIds
+        matchedContactIds,
+        { pairLimit: config.affinityPairNodeLimit, pushEdge }
       );
     });
 
-  buildOpportunityMatches(contacts).slice(0, 5).forEach((match) => {
-    edges.push({
-      id: `match:${match.seeker.id}:${match.solver.id}`,
-      source: `contact:${match.seeker.id}`,
-      target: `contact:${match.solver.id}`,
-      type: "potencial match",
-      weight: 3,
-      color: "#ffd166",
-      isDimmed: hasFocus && (!matchedContactIds.has(match.seeker.id) || !matchedContactIds.has(match.solver.id))
+  if (options.includeOpportunityMatches ?? true) {
+    buildOpportunityMatches(renderedContacts, config.opportunityCandidateLimit).slice(0, 5).forEach((match) => {
+      pushEdge({
+        id: `match:${match.seeker.id}:${match.solver.id}`,
+        source: `contact:${match.seeker.id}`,
+        target: `contact:${match.solver.id}`,
+        type: "potencial match",
+        weight: 3,
+        color: "#ffd166",
+        isDimmed: hasFocus && (!matchedContactIds.has(match.seeker.id) || !matchedContactIds.has(match.solver.id))
+      });
     });
-  });
+  }
 
-  return { nodes, edges, matchedContactIds, hasFocus };
+  return {
+    nodes,
+    edges,
+    matchedContactIds,
+    hasFocus,
+    totalContacts: contacts.length,
+    renderedContacts: renderedContacts.length,
+    hiddenContacts: hiddenContacts.length
+  };
 };
 
 export const makeAssistantAnswer = (prompt: string, state: GrafyState) => {

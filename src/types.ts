@@ -15,6 +15,8 @@ export type LinkKind = "whatsapp" | "instagram" | "linkedin" | "url";
 
 export type PublicVisibility = "private" | "groups" | "platform";
 
+export type GraphColorRuleScope = "cargo" | "area" | "tipoNegocio" | "ddd" | "source" | "tag";
+
 export type CustomFieldType =
   | "short_text"
   | "long_text"
@@ -108,12 +110,35 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+export interface GraphColorRule {
+  id: string;
+  scope: GraphColorRuleScope;
+  value: string;
+  label: string;
+  color: string;
+  enabled: boolean;
+}
+
+export interface SavedFilterRule {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  query?: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface GrafyState {
   schemaVersion?: string;
   profile: UserProfile;
   contacts: Contact[];
   groups: Group[];
   customFields: CustomField[];
+  graphColorRules: GraphColorRule[];
+  savedFilterRules: SavedFilterRule[];
+  activeFilterRuleId?: string;
   chatMessages: ChatMessage[];
   mergeDecisions: Record<string, "reviewed" | "ignored">;
   completedOnboarding: boolean;

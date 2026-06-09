@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import type { FirebaseApp, FirebaseOptions } from "firebase/app";
 import {
@@ -28,6 +28,7 @@ import {
   MapPin,
   MessageSquare,
   Network,
+  Palette,
   PanelLeft,
   Phone,
   Plus,
@@ -54,12 +55,14 @@ import {
   buildActionableProfessionalEnrichmentSuggestions,
   contactEnrichmentApiCatalog,
   contactEnrichmentLibraryCatalog,
+  contactMatchesGroupTags,
   contactMatchesGraphFilters,
   extractDdd,
   formatDddShortLocation,
   formatDddLocation,
   formatDate,
   getAllTags,
+  getContactTaxonomyTags,
   getDddLocation,
   getDddLocationSignals,
   getGraphFilterTags,
@@ -77,7 +80,7 @@ import {
   uid,
   unique
 } from "./lib";
-import type { Contact, CustomField, EnrichmentSuggestion, GrafyState, GraphNode, LinkKind, ViewKey } from "./types";
+import type { Contact, CustomField, EnrichmentSuggestion, GrafyState, GraphColorRule, GraphColorRuleScope, GraphNode, LinkKind, SavedFilterRule, ViewKey } from "./types";
 
 const STORAGE_KEY = "grafy-state-v2";
 const SESSION_KEY = "grafy-session-v2";
@@ -976,6 +979,9 @@ function hydrateState(state: GrafyState): GrafyState {
       ...initialState.customFields,
       ...(state.customFields ?? []).filter((field) => !initialState.customFields.some((seedField) => seedField.id === field.id))
     ],
+    graphColorRules: state.graphColorRules ?? initialState.graphColorRules,
+    savedFilterRules: state.savedFilterRules ?? initialState.savedFilterRules,
+    activeFilterRuleId: state.activeFilterRuleId,
     chatMessages: state.chatMessages ?? initialState.chatMessages,
     mergeDecisions: state.mergeDecisions ?? {}
   };
@@ -1654,7 +1660,7 @@ function AuthScreen({ onLogin }: { onLogin: AuthLoginHandler }) {
         setStatus("Informe email e senha, ou entre direto por Google/Apple para reconstruir a rede com contatos reais.");
         return;
       }
-      setStatus("Login validado no protótipo. Para abrir o Grafy com valor real, conecte Google/Apple ou carregue uma base do hub.");
+      onLogin(email, [], audienceMode === "hub" ? "groups" : "dashboard");
       return;
     }
     if (!signupReady) {
@@ -2756,6 +2762,23 @@ type SmartFilterGroup = {
   tags: string[];
 };
 
+type SmartFilterSuggestion = {
+  tag: string;
+  groupLabel: string;
+  helper: string;
+  count: number;
+  mode: "filter" | "search";
+};
+
+const contextualFilterVocabulary: Array<Omit<SmartFilterSuggestion, "count" | "mode">> = [
+  { tag: "networking", groupLabel: "Sugestão de busca", helper: "Busca contatos ligados a relacionamento, eventos e conexões." },
+  { tag: "network", groupLabel: "Sugestão de busca", helper: "Busca termos em descrição, empresa, links e notas." },
+  { tag: "relacionamento", groupLabel: "Sugestão de busca", helper: "Busca sinais amplos de relacionamento comercial." },
+  { tag: "oportunidades", groupLabel: "Sugestão de busca", helper: "Busca demandas, soluções e possíveis conexões." },
+  { tag: "tomador de decisão", groupLabel: "Sugestão de busca", helper: "Busca pessoas com poder de decisão." },
+  { tag: "setor de atuação", groupLabel: "Sugestão de busca", helper: "Busca área, segmento e tipo de negócio." }
+];
+
 function getFilterGroupTags(label: string) {
   return graphFilterGroups.find((group) => normalizeGraphTag(group.label) === normalizeGraphTag(label))?.tags ?? [];
 }
@@ -2819,6 +2842,35 @@ function getFilterMatchCount(contacts: Contact[], groups: GrafyState["groups"], 
   return contacts.filter((contact) => contactMatchesGraphFilters(contact, [tag], "", groups)).length;
 }
 
+function getFilterMatchCounts(contacts: Contact[], groups: GrafyState["groups"], tags: string[]) {
+  const wanted = new Map<string, string[]>();
+  tags.forEach((tag) => {
+    const normalized = normalizeGraphTag(tag);
+    wanted.set(normalized, [...(wanted.get(normalized) ?? []), tag]);
+  });
+  const counts = new Map(tags.map((tag) => [tag, 0]));
+  contacts.forEach((contact) => {
+    const taxonomy = new Set(getContactTaxonomyTags(contact, groups).map(normalizeGraphTag));
+    taxonomy.forEach((normalized) => {
+      wanted.get(normalized)?.forEach((tag) => counts.set(tag, (counts.get(tag) ?? 0) + 1));
+    });
+  });
+  return counts;
+}
+
+function rankFilterSuggestion(tag: string, query: string, groupLabel: string) {
+  const normalizedTag = normalizeGraphTag(tag);
+  const normalizedGroup = normalizeGraphTag(groupLabel);
+  const normalizedQuery = normalizeGraphTag(query);
+  if (!normalizedQuery) return 1;
+  if (normalizedTag === normalizedQuery) return 120;
+  if (normalizedTag.startsWith(normalizedQuery)) return 100;
+  if (normalizedTag.split(/\s+/).some((word) => word.startsWith(normalizedQuery))) return 86;
+  if (normalizedTag.includes(normalizedQuery)) return 70;
+  if (normalizedGroup.includes(normalizedQuery)) return 42;
+  return 0;
+}
+
 function filterCountLabel(count: number) {
   return count === 1 ? "1 pessoa" : `${count} pessoas`;
 }
@@ -2829,6 +2881,7 @@ function SmartFilterPanel({
   activeFilters,
   onToggle,
   onClear,
+  onSearchCommit,
   title,
   description
 }: {
@@ -2837,19 +2890,71 @@ function SmartFilterPanel({
   activeFilters: string[];
   onToggle: (tag: string) => void;
   onClear: () => void;
+  onSearchCommit?: (query: string) => void;
   title: string;
   description: string;
 }) {
+  const [filterQuery, setFilterQuery] = useState("");
+  const deferredFilterQuery = useDeferredValue(filterQuery);
+  const baseFilterGroups = useMemo(() => getSmartFilterGroups(contacts, groups), [contacts, groups]);
+  const filterTags = useMemo(() => unique(baseFilterGroups.flatMap((group) => group.tags)), [baseFilterGroups]);
+  const filterCounts = useMemo(() => getFilterMatchCounts(contacts, groups, filterTags), [contacts, groups, filterTags]);
   const filterGroups = useMemo(
-    () =>
-      getSmartFilterGroups(contacts, groups)
-        .map((group) => ({
-          ...group,
-          tags: group.tags.filter((tag) => getFilterMatchCount(contacts, groups, tag) > 0)
-        }))
-        .filter((group) => group.tags.length > 0),
-    [contacts, groups]
+    () => baseFilterGroups
+      .map((group) => ({
+        ...group,
+        tags: group.tags.filter((tag) => (filterCounts.get(tag) ?? 0) > 0)
+      }))
+      .filter((group) => group.tags.length > 0),
+    [baseFilterGroups, filterCounts]
   );
+  const suggestions = useMemo<SmartFilterSuggestion[]>(() => {
+    const query = deferredFilterQuery.trim();
+    const activeNormalized = new Set(activeFilters.map(normalizeGraphTag));
+    const filterSuggestions = filterGroups
+      .flatMap((group) =>
+        group.tags.map((tag) => ({
+          tag,
+          groupLabel: group.label,
+          helper: group.helper,
+          count: filterCounts.get(tag) ?? 0,
+          mode: "filter" as const,
+          score: rankFilterSuggestion(tag, query, group.label)
+        }))
+      );
+    const vocabularySuggestions = contextualFilterVocabulary.map((suggestion) => ({
+      ...suggestion,
+      count: filterCounts.get(suggestion.tag) ?? 0,
+      mode: (filterCounts.get(suggestion.tag) ?? 0) > 0 ? "filter" as const : "search" as const,
+      score: rankFilterSuggestion(suggestion.tag, query, suggestion.groupLabel)
+    }));
+    return [...filterSuggestions, ...vocabularySuggestions]
+      .filter((suggestion) => !activeNormalized.has(normalizeGraphTag(suggestion.tag)) && (!query || suggestion.score > 0))
+      .sort((a, b) => b.score - a.score || b.count - a.count || a.tag.localeCompare(b.tag))
+      .filter((suggestion, index, list) => list.findIndex((item) => normalizeGraphTag(item.tag) === normalizeGraphTag(suggestion.tag)) === index)
+      .slice(0, query ? 8 : 10);
+  }, [activeFilters, deferredFilterQuery, filterCounts, filterGroups]);
+
+  const applySuggestion = (suggestion: SmartFilterSuggestion) => {
+    if (suggestion.mode === "filter" && suggestion.count > 0) {
+      onToggle(suggestion.tag);
+    } else if (onSearchCommit) {
+      onSearchCommit(suggestion.tag);
+    }
+    setFilterQuery("");
+  };
+
+  const commitFilterSearch = () => {
+    const value = filterQuery.trim();
+    if (suggestions[0]) {
+      applySuggestion(suggestions[0]);
+      return;
+    }
+    if (value && onSearchCommit) {
+      onSearchCommit(value);
+      setFilterQuery("");
+    }
+  };
 
   return (
     <section className="smart-filter-panel">
@@ -2864,6 +2969,47 @@ function SmartFilterPanel({
         <span className="toolbar-count">{activeFilters.length ? `${activeFilters.length} ativo(s)` : `${contacts.length} contatos base`}</span>
       </div>
 
+      <div className="smart-filter-search">
+        <div className="smart-filter-input">
+          <Search size={16} />
+          <input
+            value={filterQuery}
+            onChange={(event) => setFilterQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitFilterSearch();
+              }
+            }}
+            placeholder="Digite região, cargo, setor, DDD ou estratégia..."
+            aria-label="Pesquisar filtros inteligentes"
+          />
+          {filterQuery && (
+            <button type="button" className="mini-clear-button" onClick={() => setFilterQuery("")} aria-label="Limpar busca de filtros">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        <div className="smart-suggestion-row" role="listbox" aria-label="Sugestões de filtros">
+          {suggestions.map((suggestion) => (
+            <button
+              key={`${suggestion.groupLabel}-${suggestion.tag}`}
+              type="button"
+              className={`smart-suggestion ${tagToneClass(suggestion.tag)}`}
+              onClick={() => applySuggestion(suggestion)}
+            >
+              <span>{suggestion.tag}</span>
+              <small>{suggestion.groupLabel} · {suggestion.count > 0 ? filterCountLabel(suggestion.count) : "buscar texto"}</small>
+            </button>
+          ))}
+          {!suggestions.length && (
+            <span className="smart-suggestion-empty">
+              Continue digitando ou pressione Enter para usar como busca textual.
+            </span>
+          )}
+        </div>
+      </div>
+
       <div className="smart-filter-groups">
         {filterGroups.map((group) => (
           <div className="smart-filter-family" key={group.label}>
@@ -2874,7 +3020,7 @@ function SmartFilterPanel({
             <div className="smart-filter-chip-grid">
               {group.tags.map((tag) => {
                 const active = activeFilters.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag));
-                const count = getFilterMatchCount(contacts, groups, tag);
+                const count = filterCounts.get(tag) ?? 0;
                 return (
                   <button
                     key={`${group.label}-${tag}`}
@@ -2909,26 +3055,388 @@ function SmartFilterPanel({
   );
 }
 
-function ContactsView({ state, selectedContact, setSelectedContactId, addContact, updateContact, deleteContact, approveMerge, updateMergeDecision }: AppShellProps) {
+function getSavedRuleMatchCount(rule: SavedFilterRule, contacts: Contact[], groups: GrafyState["groups"]) {
+  return contacts.filter((contact) => contactMatchesGraphFilters(contact, rule.tags, rule.query ?? "", groups)).length;
+}
+
+function suggestedRuleName(tags: string[], query: string) {
+  if (tags.length) return tags.slice(0, 3).join(" + ");
+  return query.trim() || "Regra personalizada";
+}
+
+function SavedFilterRulesPanel({
+  contacts,
+  groups,
+  rules,
+  activeRuleId,
+  activeFilters,
+  query,
+  draftName,
+  draftTags,
+  onDraftNameChange,
+  onDraftTagsChange,
+  onApply,
+  onClear,
+  onSaveDraft,
+  onSaveCurrent,
+  onDelete
+}: {
+  contacts: Contact[];
+  groups: GrafyState["groups"];
+  rules: SavedFilterRule[];
+  activeRuleId?: string;
+  activeFilters: string[];
+  query: string;
+  draftName: string;
+  draftTags: string;
+  onDraftNameChange: (value: string) => void;
+  onDraftTagsChange: (value: string) => void;
+  onApply: (rule: SavedFilterRule) => void;
+  onClear: () => void;
+  onSaveDraft: () => void;
+  onSaveCurrent: () => void;
+  onDelete: (ruleId: string) => void;
+}) {
+  const hasDraftTags = splitList(draftTags).length > 0;
+  const canSaveCurrent = activeFilters.length > 0 || query.trim().length > 0;
+  return (
+    <section className="saved-rules-panel">
+      <div className="saved-rules-head">
+        <div>
+          <strong>
+            <Filter size={16} />
+            Regras salvas
+          </strong>
+          <p>Use tags como ddd61, diretor, marketing, financeiro ou RH para separar leads, equipes, cargos e regiÃµes.</p>
+        </div>
+        {activeRuleId ? (
+          <button className="secondary-button compact ghost" type="button" onClick={onClear}>
+            <X size={14} />
+            Limpar regra
+          </button>
+        ) : (
+          <span className="toolbar-count">{rules.length} regra(s)</span>
+        )}
+      </div>
+
+      <div className="saved-rule-list" aria-label="Regras salvas de contatos">
+        {rules.map((rule) => {
+          const active = rule.id === activeRuleId;
+          const count = getSavedRuleMatchCount(rule, contacts, groups);
+          return (
+            <button
+              key={rule.id}
+              type="button"
+              className={`saved-rule-chip ${active ? "active" : ""}`}
+              style={{ "--rule-color": rule.color } as React.CSSProperties}
+              onClick={() => onApply(rule)}
+            >
+              <span>{rule.name}</span>
+              <small>{count} contato(s) Â· {rule.tags.join(" + ") || rule.query || "sem tags"}</small>
+              <i aria-hidden="true" />
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="saved-rule-composer">
+        <label>
+          Nome da regra
+          <input value={draftName} onChange={(event) => onDraftNameChange(event.target.value)} placeholder="Ex.: Diretores de BrasÃ­lia" />
+        </label>
+        <label>
+          Tags da regra
+          <input value={draftTags} onChange={(event) => onDraftTagsChange(event.target.value)} placeholder="ddd61, diretor, finanÃ§as" />
+        </label>
+        <button className="primary-button compact" type="button" onClick={onSaveDraft} disabled={!hasDraftTags}>
+          <Plus size={15} />
+          Criar regra
+        </button>
+        <button className="secondary-button compact" type="button" onClick={onSaveCurrent} disabled={!canSaveCurrent}>
+          <Check size={15} />
+          Salvar filtro atual
+        </button>
+      </div>
+
+      {activeRuleId && (
+        <div className="active-rule-actions">
+          {rules.filter((rule) => rule.id === activeRuleId).map((rule) => (
+            <button key={rule.id} className="mini-clear-button" type="button" onClick={() => onDelete(rule.id)} aria-label={`Excluir ${rule.name}`}>
+              <Trash2 size={13} />
+            </button>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+const graphColorScopeOptions: Array<{ scope: GraphColorRuleScope; label: string; helper: string }> = [
+  { scope: "cargo", label: "Cargo", helper: "Gerente, diretor, CEO, CTO..." },
+  { scope: "area", label: "Setor", helper: "Marketing, tecnologia, finanças..." },
+  { scope: "ddd", label: "Região / DDD", helper: "DDD 11 · SP, Nordeste..." },
+  { scope: "tipoNegocio", label: "Tipo de negócio", helper: "B2B, PME, SaaS..." },
+  { scope: "source", label: "Fonte", helper: "Google Contacts, CSV, Apple..." },
+  { scope: "tag", label: "Tag livre", helper: "Qualquer tag estratégica." }
+];
+
+const graphColorPalette = ["#66d9ff", "#60f2d5", "#31d17f", "#ffd166", "#ff7aa8", "#a993ff", "#58a6ff", "#f78166"];
+
+function graphColorScopeLabel(scope: GraphColorRuleScope) {
+  return graphColorScopeOptions.find((item) => item.scope === scope)?.label ?? scope;
+}
+
+function readContactCustomValue(contact: Contact, key: string) {
+  const value = contact.customFields?.[key];
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function getGraphColorRuleSuggestions(contacts: Contact[], groups: GrafyState["groups"], scope: GraphColorRuleScope) {
+  if (scope === "cargo") return unique(contacts.map((contact) => readContactCustomValue(contact, "cargo")).filter(Boolean));
+  if (scope === "area") return unique(contacts.map((contact) => readContactCustomValue(contact, "area")).filter(Boolean));
+  if (scope === "tipoNegocio") return unique(contacts.map((contact) => readContactCustomValue(contact, "tipoNegocio")).filter(Boolean));
+  if (scope === "ddd") {
+    return unique(contacts.flatMap((contact) => {
+      const location = getDddLocation(contact.ddd);
+      return [
+        contact.ddd ? `DDD ${contact.ddd}` : "",
+        contact.ddd ? formatDddShortLocation(contact.ddd) : "",
+        location?.state ?? "",
+        location?.region ?? ""
+      ];
+    }).filter(Boolean));
+  }
+  if (scope === "source") return unique(contacts.map((contact) => contact.source).filter(Boolean));
+  return getGraphFilterTags(contacts, groups).filter((tag) => !tag.startsWith("DDD ")).slice(0, 48);
+}
+
+function GraphColorPanel({
+  contacts,
+  groups,
+  rules,
+  setRules
+}: {
+  contacts: Contact[];
+  groups: GrafyState["groups"];
+  rules: GraphColorRule[];
+  setRules: (updater: (current: GraphColorRule[]) => GraphColorRule[]) => void;
+}) {
+  const [scope, setScope] = useState<GraphColorRuleScope>("cargo");
+  const [value, setValue] = useState("");
+  const [label, setLabel] = useState("");
+  const [color, setColor] = useState(graphColorPalette[0]);
+  const suggestions = useMemo(() => getGraphColorRuleSuggestions(contacts, groups, scope).slice(0, 80), [contacts, groups, scope]);
+  const enabledRules = rules.filter((rule) => rule.enabled).length;
+
+  const saveRule = () => {
+    const cleanValue = value.trim();
+    if (!cleanValue) return;
+    const cleanLabel = label.trim() || cleanValue;
+    setRules((current) => {
+      const existing = current.find((rule) => rule.scope === scope && normalizeGraphTag(rule.value) === normalizeGraphTag(cleanValue));
+      if (existing) {
+        return current.map((rule) =>
+          rule.id === existing.id ? { ...rule, value: cleanValue, label: cleanLabel, color, enabled: true } : rule
+        );
+      }
+      return [
+        { id: uid("color"), scope, value: cleanValue, label: cleanLabel, color, enabled: true },
+        ...current
+      ];
+    });
+    setValue("");
+    setLabel("");
+  };
+
+  return (
+    <section className="graph-color-panel">
+      <div className="smart-filter-head">
+        <div>
+          <strong>
+            <Palette size={16} />
+            Cores do grafo
+          </strong>
+          <p>Crie padrões visuais: gerentes em azul claro, marketing em rosa, DDD 11 em roxo ou qualquer regra própria.</p>
+        </div>
+        <span className="toolbar-count">{enabledRules} padrão(ões)</span>
+      </div>
+
+      <div className="color-rule-form">
+        <label>
+          Aplicar cor em
+          <select value={scope} onChange={(event) => {
+            setScope(event.target.value as GraphColorRuleScope);
+            setValue("");
+            setLabel("");
+          }}>
+            {graphColorScopeOptions.map((option) => (
+              <option key={option.scope} value={option.scope}>{option.label}</option>
+            ))}
+          </select>
+          <small>{graphColorScopeOptions.find((option) => option.scope === scope)?.helper}</small>
+        </label>
+        <label>
+          Valor
+          <input
+            value={value}
+            list={`graph-color-values-${scope}`}
+            onChange={(event) => setValue(event.target.value)}
+            placeholder="Ex.: gerente, marketing, DDD 11"
+          />
+          <datalist id={`graph-color-values-${scope}`}>
+            {suggestions.map((suggestion) => <option key={suggestion} value={suggestion} />)}
+          </datalist>
+        </label>
+        <label>
+          Nome no painel
+          <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Opcional" />
+        </label>
+        <div className="rgb-color-field">
+          <span>Cor RGB</span>
+          <input type="color" value={color} onChange={(event) => setColor(event.target.value)} aria-label="Escolher cor RGB" />
+          <strong>{color.toUpperCase()}</strong>
+        </div>
+      </div>
+
+      <div className="color-swatch-grid" aria-label="Atalhos de cor">
+        {graphColorPalette.map((paletteColor) => (
+          <button
+            key={paletteColor}
+            type="button"
+            className={normalizeGraphTag(color) === normalizeGraphTag(paletteColor) ? "active" : ""}
+            style={{ "--swatch": paletteColor } as React.CSSProperties}
+            onClick={() => setColor(paletteColor)}
+            aria-label={`Usar cor ${paletteColor}`}
+          />
+        ))}
+      </div>
+
+      <button className="primary-button compact" type="button" onClick={saveRule} disabled={!value.trim()}>
+        <Plus size={15} />
+        Salvar padrão de cor
+      </button>
+
+      <div className="color-rule-list">
+        {rules.map((rule) => (
+          <div key={rule.id} className={`color-rule-item ${rule.enabled ? "" : "muted"}`}>
+            <i style={{ "--rule-color": rule.color } as React.CSSProperties} />
+            <div>
+              <strong>{rule.label}</strong>
+              <small>{graphColorScopeLabel(rule.scope)} · {rule.value}</small>
+            </div>
+            <button type="button" className="mini-rule-button" onClick={() => setRules((current) => current.map((item) => item.id === rule.id ? { ...item, enabled: !item.enabled } : item))}>
+              {rule.enabled ? "Ativo" : "Off"}
+            </button>
+            <button type="button" className="mini-clear-button" onClick={() => setRules((current) => current.filter((item) => item.id !== rule.id))} aria-label={`Remover ${rule.label}`}>
+              <X size={13} />
+            </button>
+          </div>
+        ))}
+        {!rules.length && <span className="smart-suggestion-empty">Nenhum padrão criado ainda.</span>}
+      </div>
+    </section>
+  );
+}
+
+function ContactsView({ state, setState, selectedContact, setSelectedContactId, addContact, updateContact, deleteContact, approveMerge, updateMergeDecision }: AppShellProps) {
   const [query, setQuery] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  const [ruleName, setRuleName] = useState("");
+  const [ruleTagsDraft, setRuleTagsDraft] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const savedRules = state.savedFilterRules ?? [];
+  const activeRule = savedRules.find((rule) => rule.id === state.activeFilterRuleId);
   const suggestions = getMergeSuggestions(state.contacts);
   const mergeDecisions = state.mergeDecisions ?? {};
   const visibleSuggestions = suggestions.filter((suggestion) => mergeDecisions[suggestion.id] !== "ignored");
   const pendingSuggestions = visibleSuggestions.filter((suggestion) => mergeDecisions[suggestion.id] !== "reviewed");
   const reviewedSuggestions = visibleSuggestions.filter((suggestion) => mergeDecisions[suggestion.id] === "reviewed");
+
+  useEffect(() => {
+    if (!state.activeFilterRuleId) return;
+    if (!activeRule) {
+      setState((current) => ({ ...current, activeFilterRuleId: undefined }));
+      return;
+    }
+    setActiveFilters(activeRule.tags);
+    setQuery(activeRule.query ?? "");
+  }, [activeRule, setState, state.activeFilterRuleId]);
+
+  const clearActiveRule = () => {
+    setState((current) => ({ ...current, activeFilterRuleId: undefined }));
+    setActiveFilters([]);
+    setQuery("");
+  };
+
   const toggleFilter = (tag: string) => {
+    setState((current) => ({ ...current, activeFilterRuleId: undefined }));
     setActiveFilters((current) =>
       current.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag))
         ? current.filter((item) => normalizeGraphTag(item) !== normalizeGraphTag(tag))
         : [...current, tag]
     );
   };
+
+  const saveFilterRule = (name: string, tags: string[], ruleQuery = "") => {
+    const cleanTags = unique(tags.map((tag) => tag.trim()).filter(Boolean));
+    const cleanQuery = ruleQuery.trim();
+    if (!cleanTags.length && !cleanQuery) return;
+    const now = new Date().toISOString();
+    const cleanName = name.trim() || suggestedRuleName(cleanTags, cleanQuery);
+    const color = groupColorOptions[(savedRules.length + cleanTags.length) % groupColorOptions.length];
+    const rule: SavedFilterRule = {
+      id: uid("rule"),
+      name: cleanName,
+      description: cleanTags.length ? `Tags: ${cleanTags.join(", ")}` : `Busca: ${cleanQuery}`,
+      tags: cleanTags,
+      query: cleanQuery || undefined,
+      color,
+      createdAt: now,
+      updatedAt: now
+    };
+    setState((current) => ({
+      ...current,
+      savedFilterRules: [rule, ...(current.savedFilterRules ?? [])],
+      activeFilterRuleId: rule.id
+    }));
+    setActiveFilters(rule.tags);
+    setQuery(rule.query ?? "");
+    setRuleName("");
+    setRuleTagsDraft("");
+  };
+
+  const applySavedRule = (rule: SavedFilterRule) => {
+    setState((current) => ({ ...current, activeFilterRuleId: rule.id }));
+    setActiveFilters(rule.tags);
+    setQuery(rule.query ?? "");
+  };
+
+  const deleteSavedRule = (ruleId: string) => {
+    setState((current) => ({
+      ...current,
+      savedFilterRules: (current.savedFilterRules ?? []).filter((rule) => rule.id !== ruleId),
+      activeFilterRuleId: current.activeFilterRuleId === ruleId ? undefined : current.activeFilterRuleId
+    }));
+    if (state.activeFilterRuleId === ruleId) {
+      setActiveFilters([]);
+      setQuery("");
+    }
+  };
+
   const contacts = useMemo(() => {
     const filtered = state.contacts.filter((contact) => contactMatchesGraphFilters(contact, activeFilters, query, state.groups));
     return query ? searchContacts(filtered, query) : filtered;
   }, [activeFilters, query, state.contacts, state.groups]);
+  const selectedVisibleContact = selectedContact && contacts.some((contact) => contact.id === selectedContact.id)
+    ? selectedContact
+    : contacts[0];
+
+  useEffect(() => {
+    if (!selectedVisibleContact) return;
+    if (selectedContact?.id !== selectedVisibleContact.id) setSelectedContactId(selectedVisibleContact.id);
+  }, [selectedContact?.id, selectedVisibleContact, setSelectedContactId]);
   const locationSummary = unique(contacts.map((contact) => formatDddShortLocation(contact.ddd)).filter((label) => !label.includes("não identificado"))).slice(0, 4);
 
   return (
@@ -2937,7 +3445,14 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
         <div className="section-toolbar">
           <div className="search-box">
             <Search size={17} />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar por nome, cargo, área, DDD, região ou demanda" />
+            <input
+              value={query}
+              onChange={(event) => {
+                setState((current) => ({ ...current, activeFilterRuleId: undefined }));
+                setQuery(event.target.value);
+              }}
+              placeholder="Buscar por nome, cargo, área, DDD, região ou demanda"
+            />
           </div>
           <span className="toolbar-count">{contacts.length} de {state.contacts.length}</span>
           <button className="primary-button compact" onClick={() => setShowCreate(true)}>
@@ -2946,12 +3461,34 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
           </button>
         </div>
 
+        <SavedFilterRulesPanel
+          contacts={state.contacts}
+          groups={state.groups}
+          rules={savedRules}
+          activeRuleId={state.activeFilterRuleId}
+          activeFilters={activeFilters}
+          query={query}
+          draftName={ruleName}
+          draftTags={ruleTagsDraft}
+          onDraftNameChange={setRuleName}
+          onDraftTagsChange={setRuleTagsDraft}
+          onApply={applySavedRule}
+          onClear={clearActiveRule}
+          onSaveDraft={() => saveFilterRule(ruleName, splitList(ruleTagsDraft))}
+          onSaveCurrent={() => saveFilterRule(ruleName, activeFilters, query)}
+          onDelete={deleteSavedRule}
+        />
+
         <SmartFilterPanel
           contacts={state.contacts}
           groups={state.groups}
           activeFilters={activeFilters}
           onToggle={toggleFilter}
-          onClear={() => setActiveFilters([])}
+          onClear={clearActiveRule}
+          onSearchCommit={(value) => {
+            setState((current) => ({ ...current, activeFilterRuleId: undefined }));
+            setQuery(value);
+          }}
           title="Filtros inteligentes"
           description="Selecione mais de um chip para afunilar: diretor + financeiro + DDD 11, por exemplo."
         />
@@ -3007,7 +3544,7 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
           {contacts.map((contact) => (
             <button
               key={contact.id}
-              className={`contact-row ${selectedContact?.id === contact.id ? "active" : ""}`}
+              className={`contact-row ${selectedVisibleContact?.id === contact.id ? "active" : ""}`}
               onClick={() => setSelectedContactId(contact.id)}
             >
               <span className="avatar">{initials(contact.name)}</span>
@@ -3044,12 +3581,14 @@ function ContactsView({ state, selectedContact, setSelectedContactId, addContact
             addContact(contact);
             setShowCreate(false);
           }} />
-        ) : selectedContact ? (
+        ) : selectedVisibleContact ? (
           <ContactDetail
-            contact={selectedContact}
-            suggestions={visibleSuggestions.filter((suggestion) => suggestion.contactA.id === selectedContact.id || suggestion.contactB.id === selectedContact.id)}
+            contact={selectedVisibleContact}
+            suggestions={visibleSuggestions.filter((suggestion) => suggestion.contactA.id === selectedVisibleContact.id || suggestion.contactB.id === selectedVisibleContact.id)}
             mergeDecisions={mergeDecisions}
             customFields={state.customFields}
+            activeRule={activeRule}
+            activeFilters={activeFilters}
             updateContact={updateContact}
             deleteContact={deleteContact}
             approveMerge={approveMerge}
@@ -3068,6 +3607,8 @@ function ContactDetail({
   suggestions,
   mergeDecisions,
   customFields,
+  activeRule,
+  activeFilters,
   updateContact,
   deleteContact,
   approveMerge,
@@ -3077,6 +3618,8 @@ function ContactDetail({
   suggestions: ReturnType<typeof getMergeSuggestions>;
   mergeDecisions: GrafyState["mergeDecisions"];
   customFields: CustomField[];
+  activeRule?: SavedFilterRule;
+  activeFilters: string[];
   updateContact: (id: string, patch: Partial<Contact>) => void;
   deleteContact: (id: string) => void;
   approveMerge: (primaryId: string, duplicateId: string) => void;
@@ -3115,6 +3658,16 @@ function ContactDetail({
           <p>{contact.headline}</p>
         </div>
       </div>
+
+      {(activeRule || activeFilters.length > 0) && (
+        <div className="detail-rule-banner">
+          <Filter size={16} />
+          <div>
+            <strong>{activeRule ? activeRule.name : "Filtro ativo"}</strong>
+            <small>{(activeRule?.tags ?? activeFilters).join(" + ")}</small>
+          </div>
+        </div>
+      )}
 
       {suggestions.map((suggestion) => {
         const other = suggestion.contactA.id === contact.id ? suggestion.contactB : suggestion.contactA;
@@ -4259,35 +4812,35 @@ function ConnectorLane({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
+function GraphView({ state, setState, setSelectedContactId, setView }: AppShellProps) {
   const [query, setQuery] = useState("");
   const [groupId, setGroupId] = useState("");
   const [activeFilters, setActiveFilters] = useState<string[]>([]);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const deferredQuery = useDeferredValue(query);
   const graphCanvasRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ x: number; y: number; panX: number; panY: number } | null>(null);
-  const graph = useMemo(() => buildGraph(state, query, groupId || undefined, activeFilters), [activeFilters, groupId, query, state]);
-  const nodeMap = new Map(graph.nodes.map((node) => [node.id, node]));
+  const panFrameRef = useRef(0);
+  const pendingPanRef = useRef(pan);
   const graphScopedContacts = useMemo(
-    () => groupId ? state.contacts.filter((contact) => contact.groupIds.includes(groupId)) : state.contacts,
-    [groupId, state.contacts]
+    () => {
+      const activeGroup = groupId ? state.groups.find((group) => group.id === groupId) : undefined;
+      return activeGroup
+        ? state.contacts.filter((contact) => contact.groupIds.includes(activeGroup.id) || contactMatchesGroupTags(contact, activeGroup, state.groups))
+        : state.contacts;
+    },
+    [groupId, state.contacts, state.groups]
   );
-  const availableTags = useMemo(() => getGraphFilterTags(graphScopedContacts, state.groups), [graphScopedContacts, state.groups]);
-  const visibleGraphFilterGroups = useMemo(
-    () =>
-      graphFilterGroups
-        .map((group) => ({
-          ...group,
-          tags: group.tags.filter((tag) =>
-            availableTags.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag)) &&
-            getFilterMatchCount(graphScopedContacts, state.groups, tag) > 0
-          )
-        }))
-        .filter((group) => group.tags.length > 0),
-    [availableTags, graphScopedContacts, state.groups]
+  const graph = useMemo(
+    () => buildGraph(state, deferredQuery, groupId || undefined, activeFilters, {
+      includeOpportunityMatches: true,
+      colorRules: state.graphColorRules ?? []
+    }),
+    [activeFilters, deferredQuery, groupId, state]
   );
+  const nodeMap = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node])), [graph.nodes]);
 
   const toggleFilter = (tag: string) => {
     setActiveFilters((current) =>
@@ -4295,6 +4848,22 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
         ? current.filter((item) => normalizeGraphTag(item) !== normalizeGraphTag(tag))
         : [...current, tag]
     );
+  };
+
+  const setGraphColorRules = (updater: (current: GraphColorRule[]) => GraphColorRule[]) => {
+    setState((current) => ({
+      ...current,
+      graphColorRules: updater(current.graphColorRules ?? [])
+    }));
+  };
+
+  const schedulePan = (nextPan: { x: number; y: number }) => {
+    pendingPanRef.current = nextPan;
+    if (panFrameRef.current) return;
+    panFrameRef.current = requestAnimationFrame(() => {
+      panFrameRef.current = 0;
+      setPan(pendingPanRef.current);
+    });
   };
 
   const onPointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
@@ -4306,7 +4875,7 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
 
   const onPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
     if (!dragRef.current) return;
-    setPan({
+    schedulePan({
       x: dragRef.current.panX + event.clientX - dragRef.current.x,
       y: dragRef.current.panY + event.clientY - dragRef.current.y
     });
@@ -4316,6 +4885,10 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
     dragRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
+
+  useEffect(() => () => {
+    if (panFrameRef.current) cancelAnimationFrame(panFrameRef.current);
+  }, []);
 
   useEffect(() => {
     const canvas = graphCanvasRef.current;
@@ -4361,30 +4934,23 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
         </button>
       </section>
 
-      <section className="graph-filter-panel">
-        <div>
-          <strong>Filtros combináveis</strong>
-          <span>{activeFilters.length ? `${activeFilters.length} filtro(s) ativo(s)` : "Escolha cargo, área, DDD/estado, pasta ou estratégia"}</span>
-        </div>
-        <div className="graph-filter-groups">
-          {visibleGraphFilterGroups.map((group) => (
-            <div key={group.label} className="filter-family">
-              <small>{group.label}</small>
-              <div>
-                {group.tags.map((tag) => (
-                    <button
-                      key={tag}
-                      className={`${activeFilters.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag)) ? "filter-chip active" : "filter-chip"} ${tagToneClass(tag)}`}
-                      onClick={() => toggleFilter(tag)}
-                    >
-                      <span>{tag}</span>
-                      <small>{filterCountLabel(getFilterMatchCount(graphScopedContacts, state.groups, tag))}</small>
-                    </button>
-                  ))}
-              </div>
-            </div>
-          ))}
-        </div>
+      <section className="graph-filter-shell">
+        <SmartFilterPanel
+          contacts={graphScopedContacts}
+          groups={state.groups}
+          activeFilters={activeFilters}
+          onToggle={toggleFilter}
+          onClear={() => setActiveFilters([])}
+          onSearchCommit={(value) => setQuery(value)}
+          title="Filtros inteligentes do grafo"
+          description="Digite como no Google: região, cargo, setor, DDD, fonte ou estratégia. Clique em uma sugestão ou pressione Enter para aplicar."
+        />
+        <GraphColorPanel
+          contacts={graphScopedContacts}
+          groups={state.groups}
+          rules={state.graphColorRules ?? []}
+          setRules={setGraphColorRules}
+        />
       </section>
 
       <section className="graph-focus-bar">
@@ -4394,6 +4960,8 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
             {graph.hasFocus
               ? "Quem não bate com a combinação fica em 8% de opacidade para manter contexto sem poluir a leitura."
               : "Exemplos: diretor + finanças, DDD 11 · SP + eventos, ou pasta + tecnologia."}
+            {" "}
+            Mostrando até 20 contatos no canvas para preservar a animação fluida.
           </span>
         </div>
         <div className="active-filter-stack">
@@ -4433,11 +5001,12 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
                 const source = nodeMap.get(edge.source);
                 const target = nodeMap.get(edge.target);
                 if (!source || !target) return null;
+                const edgeDuration = edge.type === "potencial match" ? 4.2 : 6 + (edge.id.length % 7) * 0.34;
                 return (
                   <line
                     key={edge.id}
                     className={`graph-edge ${edge.type === "potencial match" ? "match" : ""} ${edge.type === "afinidade de tag" || edge.type === "mesma pasta" ? "affinity" : ""} ${edge.isDimmed ? "dimmed" : ""}`}
-                    style={{ "--edge-color": edge.color ?? "#7dc7ff", strokeWidth: Math.max(0.7, edge.weight) } as React.CSSProperties}
+                    style={{ "--edge-color": edge.color ?? "#7dc7ff", "--edge-duration": `${edgeDuration}s`, strokeWidth: Math.max(0.7, edge.weight) } as React.CSSProperties}
                     x1={source.x}
                     y1={source.y}
                     x2={target.x}
@@ -4445,20 +5014,35 @@ function GraphView({ state, setSelectedContactId, setView }: AppShellProps) {
                   />
                 );
               })}
-              {graph.nodes.map((node, index) => (
-                <g key={node.id} className={`graph-node ${node.type} ${node.isDimmed ? "dimmed" : ""}`} style={{ animationDelay: `${(index % 9) * -0.42}s`, "--node-color": node.color ?? "#66e7ff" } as React.CSSProperties} onClick={() => {
-                  setSelectedNode(node);
-                  if (node.contactId) setSelectedContactId(node.contactId);
-                }}>
-                  <circle cx={node.x} cy={node.y} r={Math.min(24, node.weight + 8)} />
-                  <text className="graph-node-title" x={node.x} y={node.type === "contact" || node.type === "public" ? node.y - 3 : node.y + node.weight + 24}>
-                    {shortGraphLabel(node.label)}
-                  </text>
-                  {(node.type === "contact" || node.type === "public") && (
-                    <text className="graph-node-meta" x={node.x} y={node.y + 13}>{node.meta?.split(" · ")[0].slice(0, 18)}</text>
-                  )}
-                </g>
-              ))}
+              {graph.nodes.map((node, index) => {
+                const isPersonNode = node.type === "contact" || node.type === "public";
+                const floatSeed = index % 8;
+                const floatX = 4 + (floatSeed % 4) * 1.8;
+                const floatY = 5 + ((floatSeed + 2) % 5) * 1.5;
+                const floatDuration = 7.4 + (floatSeed % 5) * 0.85;
+                return (
+                  <g key={node.id} className={`graph-node ${node.type} ${node.isDimmed ? "dimmed" : ""}`} style={{
+                    animationDelay: `${(index % 11) * -0.58}s`,
+                    "--float-duration": `${floatDuration}s`,
+                    "--float-x": `${floatX}px`,
+                    "--float-y": `${floatY}px`,
+                    "--float-x-alt": `${-Math.max(3, floatX - 2)}px`,
+                    "--float-y-alt": `${Math.max(3, floatY - 2)}px`,
+                    "--node-color": node.color ?? "#66e7ff"
+                  } as React.CSSProperties} onClick={() => {
+                    setSelectedNode(node);
+                    if (node.contactId) setSelectedContactId(node.contactId);
+                  }}>
+                    <circle cx={node.x} cy={node.y} r={Math.min(24, node.weight + 8)} />
+                    <text className="graph-node-title" x={node.x} y={isPersonNode ? node.y - 3 : node.y + node.weight + 24}>
+                      {shortGraphLabel(node.label)}
+                    </text>
+                    {isPersonNode && (
+                      <text className="graph-node-meta" x={node.x} y={node.y + 13}>{node.meta?.split(" · ")[0].slice(0, 18)}</text>
+                    )}
+                  </g>
+                );
+              })}
             </g>
           </svg>
         </div>
@@ -4563,12 +5147,25 @@ function contactMatchReason(contact: Contact) {
     : "Sinal do match: descrição, demanda e fonte do contato.";
 }
 
-function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelectedContactId, setView }: AppShellProps) {
+function GroupsView({ state, setState, addGroup, updateGroup, addContactToGroup, setSelectedContactId, setView }: AppShellProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
   const [color, setColor] = useState(groupColorOptions[0]);
   const [draftAssignments, setDraftAssignments] = useState<Record<string, string>>({});
+
+  const syncSmartContactsToGroup = (groupId: string, contactIds: string[]) => {
+    if (!contactIds.length) return;
+    setState((current) => ({
+      ...current,
+      groups: current.groups.map((group) =>
+        group.id === groupId ? { ...group, contactIds: unique([...group.contactIds, ...contactIds]) } : group
+      ),
+      contacts: current.contacts.map((contact) =>
+        contactIds.includes(contact.id) ? { ...contact, groupIds: unique([...contact.groupIds, groupId]) } : contact
+      )
+    }));
+  };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -4590,7 +5187,7 @@ function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelect
         </div>
         <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Nome do grupo" />
         <input value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Descrição do grupo" />
-        <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="Tags: diretoria, finanças, evento..." />
+        <input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="Tags: ddd61, Brasília, DF, diretoria..." />
         <div className="color-picker-row">
           {groupColorOptions.map((option) => (
             <button
@@ -4613,7 +5210,7 @@ function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelect
         <div>
           <span className="context group">pastas conectam estratégia</span>
           <h2>Board de grupos compartilhados</h2>
-          <p>Cada coluna tem cor, tags e contatos próprios. Quando uma pessoa entra na pasta, o grafo cria uma conexão extra para planejamento de introduções.</p>
+          <p>Cada coluna tem cor, tags e contatos próprios. Tags como ddd61, Brasília, gerente ou marketing encontram contatos automaticamente e podem fixar todos na pasta.</p>
         </div>
         <button className="secondary-button compact" onClick={() => setView("graph")}>
           <Network size={16} />
@@ -4623,9 +5220,15 @@ function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelect
 
       <div className="group-board">
         {state.groups.map((group) => {
-          const contacts = state.contacts.filter((contact) => group.contactIds.includes(contact.id));
+          const smartMatchedContacts = state.contacts.filter((contact) => contactMatchesGroupTags(contact, group, state.groups));
+          const syncedContacts = state.contacts.filter((contact) => group.contactIds.includes(contact.id));
+          const contacts = unique([...syncedContacts, ...smartMatchedContacts].map((contact) => contact.id))
+            .map((contactId) => state.contacts.find((contact) => contact.id === contactId))
+            .filter((contact): contact is Contact => Boolean(contact));
+          const smartOnlyContacts = smartMatchedContacts.filter((contact) => !group.contactIds.includes(contact.id));
           const availableContacts = state.contacts.filter((contact) => !group.contactIds.includes(contact.id));
           const groupAreas = unique(contacts.map((contact) => String(contact.customFields.area ?? "")).filter(Boolean));
+          const smartRuleText = group.tags.length ? group.tags.join(", ") : "adicione tags para buscar automaticamente";
           return (
             <article className="group-card kanban-column" key={group.id} style={{ "--group-color": group.color || groupColorOptions[0] } as React.CSSProperties}>
               <div className="group-card-head">
@@ -4639,7 +5242,7 @@ function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelect
               <div className="group-stats-row">
                 <span><strong>{contacts.length}</strong> contatos</span>
                 <span><strong>{groupAreas.length}</strong> áreas</span>
-                <span><strong>{group.tags.length}</strong> tags</span>
+                <span><strong>{smartMatchedContacts.length}</strong> por tags</span>
               </div>
               <div className="group-controls">
                 <label>
@@ -4656,6 +5259,26 @@ function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelect
               </div>
               <div className="tag-cloud compact">
                 {group.tags.map((tag) => <span className={`tag-chip ${tagToneClass(tag)}`} key={tag}>{tag}</span>)}
+              </div>
+              <div className="smart-group-match">
+                <div>
+                  <strong>Busca automática da pasta</strong>
+                  <small>{smartRuleText}</small>
+                </div>
+                <p>
+                  {group.tags.length
+                    ? `${smartMatchedContacts.length} contato(s) encontrados pelas tags. ${smartOnlyContacts.length} ainda não estão fixados na pasta.`
+                    : "Exemplo: use ddd61, Brasília, DF, gerente, marketing ou tecnologia."}
+                </p>
+                <button
+                  className="secondary-button compact"
+                  type="button"
+                  disabled={!smartOnlyContacts.length}
+                  onClick={() => syncSmartContactsToGroup(group.id, smartOnlyContacts.map((contact) => contact.id))}
+                >
+                  <Plus size={15} />
+                  Puxar encontrados
+                </button>
               </div>
               <div className="group-add-contact">
                 <select
@@ -4682,7 +5305,13 @@ function GroupsView({ state, addGroup, updateGroup, addContactToGroup, setSelect
                     <span className="avatar small">{initials(contact.name)}</span>
                     <span>
                       <strong>{contact.name}</strong>
-                      <small>{contact.tags.slice(0, 2).join(" · ")}</small>
+                      <small>
+                        {group.contactIds.includes(contact.id) ? "Na pasta" : "Match por tag"}
+                        {" · "}
+                        {formatDddShortLocation(contact.ddd)}
+                        {" · "}
+                        {(contact.headline || contact.tags.slice(0, 2).join(" · ")).slice(0, 54)}
+                      </small>
                     </span>
                   </button>
                 ))}
@@ -4759,6 +5388,7 @@ function PublicNetworkView({ state, setSelectedContactId, setView }: AppShellPro
         activeFilters={activeFilters}
         onToggle={toggleFilter}
         onClear={() => setActiveFilters([])}
+        onSearchCommit={(value) => setQuery(value)}
         title="Filtros da Rede"
         description="Cruze região, cargo, área e fonte para descobrir quem está visível sem abrir a base privada."
       />
