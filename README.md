@@ -46,10 +46,10 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 | --- | --- |
 | Landing/onboarding | Entrada central em `#/` perguntando o tipo de negócio, com caminhos dedicados em `#/empresarios` para B2C e `#/hubs-eventos` para B2B/B2B2C. O primeiro acesso agora força a lógica certa: vincular/importar dados reais antes de abrir o workspace. |
 | Dashboard | Métricas da base, atalhos, oportunidades e visão geral do workspace. |
-| Contatos | CRUD inicial, tags, demandas, problema que resolve, links, grupos e status público/privado. |
-| Regras salvas | Filtros persistidos por tags, DDD, cargo, área, setor e busca textual. A lista e a ficha do contato respeitam a regra ativa. |
+| Contatos | CRUD inicial, tags, demandas, problema que resolve, links, grupos, status público/privado, cards de resultado e filtro por inicial do nome. |
+| Regras salvas | Filtros persistidos por tags, DDD, cargo, área, setor, busca textual e iniciais de nome. A lista e a ficha do contato respeitam a regra ativa. |
 | Importação | Google Contacts quando `VITE_GOOGLE_CLIENT_ID` existe; Google Agenda opcional por `VITE_GOOGLE_IMPORT_CALENDAR=true`; Apple ID para identidade, Apple Contacts por `.vcf`, Apple Agenda por `.ics`, e bases de hubs por Excel/CSV/JSON. |
-| Grafo | Nós de contatos, tags, DDDs/localidade, fontes, grupos, demandas e soluções; pan, zoom, filtros cumulativos e inspetor lateral. |
+| Grafo | Começa sem contatos para evitar ruído; ao aplicar tags, busca ou grupo, mostra somente contatos compatíveis, com limite de 20 contatos, pan, zoom e inspetor lateral. |
 | Rede pública | Perfis opt-in, cards públicos, filtros e separação clara da base privada. |
 | Grupos | Board de pastas/grupos com tags, cores, contatos e impacto visual no grafo para hubs, eventos e empresas. |
 | Chat | Busca estruturada por tags, demanda, DDD, problema resolvido, cargo/área e duplicados, com cards ricos. |
@@ -117,8 +117,9 @@ Mais detalhes em [docs/guides/architecture.md](docs/guides/architecture.md).
 O Grafy agora separa três conceitos que precisam funcionar bem para empresário individual e para empresa/hub:
 
 - **Grupos/pastas:** guardam cor, tags e contatos fixados. Uma pasta com `ddd61`, `Brasília` ou `DF` encontra automaticamente contatos compatíveis e pode fixar esses contatos com **Puxar encontrados**.
-- **Regras salvas:** são filtros persistidos por tags e busca. Exemplos: `financeiro`, `ddd61`, `marketing + parcerias`, `diretor + RH`. Ao aplicar uma regra, a lista de contatos e a ficha aberta mostram apenas contatos que respeitam aquela regra.
-- **Filtros rápidos:** continuam disponíveis para exploração livre no momento. Quando fizer sentido, o usuário salva o filtro atual como regra para reutilizar depois.
+- **Regras salvas:** são filtros persistidos por tags, busca e iniciais de nome. Exemplos: `financeiro`, `ddd61`, `Nome A + Nome I`, `marketing + parcerias`, `diretor + RH`. Ao aplicar uma regra, a lista de contatos e a ficha aberta mostram apenas contatos que respeitam aquela regra.
+- **Filtros rápidos:** continuam disponíveis para exploração livre no momento, incluindo o filtro por inicial do nome. Quando fizer sentido, o usuário salva o filtro atual como regra para reutilizar depois.
+- **Grafo sob demanda:** para manter performance e clareza, o canvas nasce vazio e só desenha contatos depois de uma tag, busca textual ou grupo ativo. O limite de 20 contatos continua protegendo a animação.
 
 No protótipo tudo fica no navegador. Na evolução com backend, estes objetos devem ir para tabelas próprias no Postgres/Supabase: `contacts`, `groups`, `group_contacts`, `saved_filter_rules`, `custom_fields`, `custom_field_values` e regras de Row Level Security por usuário/organização.
 

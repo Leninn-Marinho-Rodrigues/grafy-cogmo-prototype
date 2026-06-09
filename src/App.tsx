@@ -2948,6 +2948,17 @@ function SmartFilterPanel({
 
   const commitFilterSearch = () => {
     const value = filterQuery.trim();
+    const exactFilter = filterTags.find((tag) => normalizeGraphTag(tag) === normalizeGraphTag(value));
+    if (exactFilter) {
+      onToggle(exactFilter);
+      setFilterQuery("");
+      return;
+    }
+    const exactSuggestion = suggestions.find((suggestion) => normalizeGraphTag(suggestion.tag) === normalizeGraphTag(value));
+    if (exactSuggestion) {
+      applySuggestion(exactSuggestion);
+      return;
+    }
     if (suggestions[0]) {
       applySuggestion(suggestions[0]);
       return;
@@ -3060,12 +3071,84 @@ function SmartFilterPanel({
 }
 
 function getSavedRuleMatchCount(rule: SavedFilterRule, contacts: Contact[], groups: GrafyState["groups"]) {
-  return contacts.filter((contact) => contactMatchesGraphFilters(contact, rule.tags, rule.query ?? "", groups)).length;
+  return contacts.filter((contact) =>
+    contactMatchesGraphFilters(contact, rule.tags, rule.query ?? "", groups) &&
+    contactMatchesNameInitials(contact, rule.nameInitials ?? [])
+  ).length;
 }
 
-function suggestedRuleName(tags: string[], query: string) {
+function suggestedRuleName(tags: string[], query: string, nameInitials: string[] = []) {
+  if (nameInitials.length) return `Nome ${nameInitials.join(" + ")}`;
   if (tags.length) return tags.slice(0, 3).join(" + ");
   return query.trim() || "Regra personalizada";
+}
+
+function getContactNameInitial(contact: Contact) {
+  const first = normalizeGraphTag(contact.name).replace(/[^a-z0-9]/g, "").charAt(0);
+  return first ? first.toUpperCase() : "#";
+}
+
+function contactMatchesNameInitials(contact: Contact, initials: string[]) {
+  if (!initials.length) return true;
+  return initials.includes(getContactNameInitial(contact));
+}
+
+function getNameInitialOptions(contacts: Contact[]) {
+  return unique(contacts.map(getContactNameInitial)).sort((a, b) => {
+    if (a === "#") return 1;
+    if (b === "#") return -1;
+    return a.localeCompare(b);
+  });
+}
+
+function NameInitialFilterPanel({
+  contacts,
+  activeInitials,
+  onToggle,
+  onClear
+}: {
+  contacts: Contact[];
+  activeInitials: string[];
+  onToggle: (initial: string) => void;
+  onClear: () => void;
+}) {
+  const initials = getNameInitialOptions(contacts);
+  return (
+    <section className="name-filter-panel" aria-label="Filtro por inicial do nome">
+      <div className="name-filter-head">
+        <div>
+          <strong>
+            <UserRound size={16} />
+            Nome
+          </strong>
+          <p>Filtre por contatos que começam com A, I ou qualquer inicial disponível na sua base.</p>
+        </div>
+        {activeInitials.length > 0 && (
+          <button className="secondary-button compact ghost" type="button" onClick={onClear}>
+            Limpar nome
+          </button>
+        )}
+      </div>
+      <div className="name-initial-grid">
+        {initials.map((initial) => {
+          const count = contacts.filter((contact) => getContactNameInitial(contact) === initial).length;
+          const active = activeInitials.includes(initial);
+          return (
+            <button
+              key={initial}
+              type="button"
+              aria-pressed={active}
+              className={active ? "name-initial-chip active" : "name-initial-chip"}
+              onClick={() => onToggle(initial)}
+            >
+              <span>{initial}</span>
+              <small>{count}</small>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 function SavedFilterRulesPanel({
@@ -3074,6 +3157,7 @@ function SavedFilterRulesPanel({
   rules,
   activeRuleId,
   activeFilters,
+  activeNameInitials,
   query,
   draftName,
   draftTags,
@@ -3090,6 +3174,7 @@ function SavedFilterRulesPanel({
   rules: SavedFilterRule[];
   activeRuleId?: string;
   activeFilters: string[];
+  activeNameInitials: string[];
   query: string;
   draftName: string;
   draftTags: string;
@@ -3102,7 +3187,7 @@ function SavedFilterRulesPanel({
   onDelete: (ruleId: string) => void;
 }) {
   const hasDraftTags = splitList(draftTags).length > 0;
-  const canSaveCurrent = activeFilters.length > 0 || query.trim().length > 0;
+  const canSaveCurrent = activeFilters.length > 0 || activeNameInitials.length > 0 || query.trim().length > 0;
   return (
     <section className="saved-rules-panel">
       <div className="saved-rules-head">
@@ -3136,7 +3221,7 @@ function SavedFilterRulesPanel({
               onClick={() => onApply(rule)}
             >
               <span>{rule.name}</span>
-              <small>{count} contato(s) Â· {rule.tags.join(" + ") || rule.query || "sem tags"}</small>
+              <small>{count} contato(s) Â· {[...rule.tags, ...(rule.nameInitials ?? []).map((initial) => `Nome ${initial}`), rule.query ?? ""].filter(Boolean).join(" + ") || "sem tags"}</small>
               <i aria-hidden="true" />
             </button>
           );
@@ -3350,6 +3435,7 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
   const [ruleName, setRuleName] = useState("");
   const [ruleTagsDraft, setRuleTagsDraft] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [nameInitialFilters, setNameInitialFilters] = useState<string[]>([]);
   const savedRules = state.savedFilterRules ?? [];
   const activeRule = savedRules.find((rule) => rule.id === state.activeFilterRuleId);
   const suggestions = getMergeSuggestions(state.contacts);
@@ -3366,12 +3452,14 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     }
     setActiveFilters(activeRule.tags);
     setQuery(activeRule.query ?? "");
+    setNameInitialFilters(activeRule.nameInitials ?? []);
   }, [activeRule, setState, state.activeFilterRuleId]);
 
   const clearActiveRule = () => {
     setState((current) => ({ ...current, activeFilterRuleId: undefined }));
     setActiveFilters([]);
     setQuery("");
+    setNameInitialFilters([]);
   };
 
   const toggleFilter = (tag: string) => {
@@ -3383,19 +3471,34 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     );
   };
 
-  const saveFilterRule = (name: string, tags: string[], ruleQuery = "") => {
+  const toggleNameInitial = (initial: string) => {
+    setState((current) => ({ ...current, activeFilterRuleId: undefined }));
+    setNameInitialFilters((current) =>
+      current.includes(initial)
+        ? current.filter((item) => item !== initial)
+        : [...current, initial]
+    );
+  };
+
+  const saveFilterRule = (name: string, tags: string[], ruleQuery = "", initials: string[] = []) => {
     const cleanTags = unique(tags.map((tag) => tag.trim()).filter(Boolean));
     const cleanQuery = ruleQuery.trim();
-    if (!cleanTags.length && !cleanQuery) return;
+    const cleanInitials = unique(initials.map((initial) => initial.trim().toUpperCase()).filter(Boolean));
+    if (!cleanTags.length && !cleanQuery && !cleanInitials.length) return;
     const now = new Date().toISOString();
-    const cleanName = name.trim() || suggestedRuleName(cleanTags, cleanQuery);
+    const cleanName = name.trim() || suggestedRuleName(cleanTags, cleanQuery, cleanInitials);
     const color = groupColorOptions[(savedRules.length + cleanTags.length) % groupColorOptions.length];
     const rule: SavedFilterRule = {
       id: uid("rule"),
       name: cleanName,
-      description: cleanTags.length ? `Tags: ${cleanTags.join(", ")}` : `Busca: ${cleanQuery}`,
+      description: [
+        cleanTags.length ? `Tags: ${cleanTags.join(", ")}` : "",
+        cleanInitials.length ? `Nomes: ${cleanInitials.join(", ")}` : "",
+        cleanQuery ? `Busca: ${cleanQuery}` : ""
+      ].filter(Boolean).join(" · "),
       tags: cleanTags,
       query: cleanQuery || undefined,
+      nameInitials: cleanInitials.length ? cleanInitials : undefined,
       color,
       createdAt: now,
       updatedAt: now
@@ -3407,6 +3510,7 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     }));
     setActiveFilters(rule.tags);
     setQuery(rule.query ?? "");
+    setNameInitialFilters(rule.nameInitials ?? []);
     setRuleName("");
     setRuleTagsDraft("");
   };
@@ -3415,6 +3519,7 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     setState((current) => ({ ...current, activeFilterRuleId: rule.id }));
     setActiveFilters(rule.tags);
     setQuery(rule.query ?? "");
+    setNameInitialFilters(rule.nameInitials ?? []);
   };
 
   const deleteSavedRule = (ruleId: string) => {
@@ -3426,13 +3531,15 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     if (state.activeFilterRuleId === ruleId) {
       setActiveFilters([]);
       setQuery("");
+      setNameInitialFilters([]);
     }
   };
 
   const contacts = useMemo(() => {
     const filtered = state.contacts.filter((contact) => contactMatchesGraphFilters(contact, activeFilters, query, state.groups));
-    return query ? searchContacts(filtered, query) : filtered;
-  }, [activeFilters, query, state.contacts, state.groups]);
+    const searched = query ? searchContacts(filtered, query) : filtered;
+    return searched.filter((contact) => contactMatchesNameInitials(contact, nameInitialFilters));
+  }, [activeFilters, nameInitialFilters, query, state.contacts, state.groups]);
   const selectedVisibleContact = selectedContact && contacts.some((contact) => contact.id === selectedContact.id)
     ? selectedContact
     : contacts[0];
@@ -3442,11 +3549,11 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     if (selectedContact?.id !== selectedVisibleContact.id) setSelectedContactId(selectedVisibleContact.id);
   }, [selectedContact?.id, selectedVisibleContact, setSelectedContactId]);
   const locationSummary = unique(contacts.map((contact) => formatDddShortLocation(contact.ddd)).filter((label) => !label.includes("não identificado"))).slice(0, 4);
-  const hasActiveContactFilter = activeFilters.length > 0 || query.trim().length > 0;
+  const hasActiveContactFilter = activeFilters.length > 0 || query.trim().length > 0 || nameInitialFilters.length > 0;
   const filterSummaryLabel = activeRule
     ? activeRule.name
     : hasActiveContactFilter
-      ? [...activeFilters, query.trim()].filter(Boolean).join(" + ")
+      ? [...activeFilters, ...nameInitialFilters.map((initial) => `Nome ${initial}`), query.trim()].filter(Boolean).join(" + ")
       : "Todos os contatos";
   const applyCrmFilter = (value: string, mode: "query" | "filter" = "query") => {
     const cleanValue = value.trim();
@@ -3491,6 +3598,7 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
           rules={savedRules}
           activeRuleId={state.activeFilterRuleId}
           activeFilters={activeFilters}
+          activeNameInitials={nameInitialFilters}
           query={query}
           draftName={ruleName}
           draftTags={ruleTagsDraft}
@@ -3499,8 +3607,18 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
           onApply={applySavedRule}
           onClear={clearActiveRule}
           onSaveDraft={() => saveFilterRule(ruleName, splitList(ruleTagsDraft))}
-          onSaveCurrent={() => saveFilterRule(ruleName, activeFilters, query)}
+          onSaveCurrent={() => saveFilterRule(ruleName, activeFilters, query, nameInitialFilters)}
           onDelete={deleteSavedRule}
+        />
+
+        <NameInitialFilterPanel
+          contacts={state.contacts}
+          activeInitials={nameInitialFilters}
+          onToggle={toggleNameInitial}
+          onClear={() => {
+            setState((current) => ({ ...current, activeFilterRuleId: undefined }));
+            setNameInitialFilters([]);
+          }}
         />
 
         <SmartFilterPanel
@@ -4980,11 +5098,17 @@ function GraphView({ state, setState, setSelectedContactId, setView }: AppShellP
   const graph = useMemo(
     () => buildGraph(state, deferredQuery, groupId || undefined, activeFilters, {
       includeOpportunityMatches: true,
-      colorRules: state.graphColorRules ?? []
+      colorRules: state.graphColorRules ?? [],
+      requireFocus: true,
+      renderOnlyMatches: true
     }),
     [activeFilters, deferredQuery, groupId, state]
   );
   const nodeMap = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node])), [graph.nodes]);
+
+  useEffect(() => {
+    if (selectedNode && !nodeMap.has(selectedNode.id)) setSelectedNode(null);
+  }, [nodeMap, selectedNode]);
 
   const toggleFilter = (tag: string) => {
     setActiveFilters((current) =>
@@ -5099,11 +5223,11 @@ function GraphView({ state, setState, setSelectedContactId, setView }: AppShellP
 
       <section className="graph-focus-bar">
         <div>
-          <strong>{graph.hasFocus ? `${graph.matchedContactIds.size} contato(s) em foco` : `${graphScopedContacts.length} contatos mapeados`}</strong>
+          <strong>{graph.hasFocus ? `${graph.matchedContactIds.size} contato(s) em foco` : "Grafo pronto para filtrar"}</strong>
           <span>
             {graph.hasFocus
-              ? "Quem não bate com a combinação fica em 8% de opacidade para manter contexto sem poluir a leitura."
-              : "Exemplos: diretor + finanças, DDD 11 · SP + eventos, ou pasta + tecnologia."}
+              ? "O canvas mostra somente contatos que respeitam os filtros/tags aplicados."
+              : "Escolha uma tag, DDD, cargo, setor, fonte, busca textual ou grupo para montar o grafo."}
             {" "}
             Mostrando até 20 contatos no canvas para preservar a animação fluida.
           </span>
@@ -5126,6 +5250,13 @@ function GraphView({ state, setState, setSelectedContactId, setView }: AppShellP
       <section className="graph-layout">
         <div className="graph-canvas" ref={graphCanvasRef}>
           <NetworkBackdrop className="graph-canvas-network" density={42} interactive={false} />
+          {graph.nodes.length === 0 && (
+            <div className="graph-empty-state">
+              <Network size={30} />
+              <strong>Escolha filtros para montar o grafo</strong>
+              <p>O Grafy começa sem contatos no canvas. Aplique tags como diretor, marketing, DDD 61 ou selecione um grupo para ver somente contatos compatíveis.</p>
+            </div>
+          )}
           <div className="graph-zoom-hint" aria-hidden="true">
             <ZoomIn size={15} />
             <span>Roda do mouse: zoom no grafo</span>

@@ -1568,6 +1568,8 @@ export const contactMatchesGraphFilters = (contact: Contact, filters: string[], 
 type GraphBuildOptions = {
   includeOpportunityMatches?: boolean;
   colorRules?: GraphColorRule[];
+  requireFocus?: boolean;
+  renderOnlyMatches?: boolean;
 };
 
 const graphConfig: {
@@ -1741,11 +1743,24 @@ export const buildGraph = (
     ? state.contacts.filter((contact) => contact.groupIds.includes(activeGroup.id) || contactMatchesGroupTags(contact, activeGroup, state.groups))
     : state.contacts;
   const contacts = scopedContacts;
-  const hasFocus = Boolean(query.trim()) || activeFilters.length > 0;
+  const hasFocus = Boolean(query.trim()) || activeFilters.length > 0 || Boolean(activeGroup);
   const config = graphConfig;
   const colorRules = (options.colorRules ?? state.graphColorRules ?? []).filter((rule) => rule.enabled);
   const normalizedQuery = normalize(query);
   const normalizedFilters = activeFilters.map(normalize);
+
+  if (options.requireFocus && !hasFocus) {
+    return {
+      nodes: [],
+      edges: [],
+      matchedContactIds: new Set<string>(),
+      hasFocus,
+      totalContacts: contacts.length,
+      renderedContacts: 0,
+      hiddenContacts: contacts.length
+    };
+  }
+
   const contactMeta = new Map<string, {
     taxonomy: string[];
     taxonomySet: Set<string>;
@@ -1781,12 +1796,21 @@ export const buildGraph = (
   });
 
   const matchedContacts = contacts.filter((contact) => matchedContactIds.has(contact.id));
-  const nonMatchedContacts = contacts.filter((contact) => !matchedContactIds.has(contact.id));
-  const renderedContacts = contacts.length > config.maxContactNodes
-    ? [...matchedContacts.slice(0, config.maxContactNodes), ...nonMatchedContacts.slice(0, Math.max(0, config.maxContactNodes - matchedContacts.length))]
-    : contacts;
+  const graphContacts = options.renderOnlyMatches && hasFocus ? matchedContacts : contacts;
+  const nonMatchedContacts = graphContacts.filter((contact) => !matchedContactIds.has(contact.id));
+  const renderedContacts = graphContacts.length > config.maxContactNodes
+    ? options.renderOnlyMatches && hasFocus
+      ? graphContacts.slice(0, config.maxContactNodes)
+      : [...matchedContacts.slice(0, config.maxContactNodes), ...nonMatchedContacts.slice(0, Math.max(0, config.maxContactNodes - matchedContacts.length))]
+    : graphContacts;
   const renderedContactIds = new Set(renderedContacts.map((contact) => contact.id));
-  const hiddenContacts = contacts.filter((contact) => !renderedContactIds.has(contact.id));
+  const graphContactIds = new Set(graphContacts.map((contact) => contact.id));
+  const hiddenContacts = graphContacts.filter((contact) => !renderedContactIds.has(contact.id));
+  const taxonomyContactsForGraph = new Map(
+    [...taxonomyContacts.entries()]
+      .map(([key, item]) => [key, { ...item, contacts: item.contacts.filter((contact) => graphContactIds.has(contact.id)) }] as const)
+      .filter(([, item]) => item.contacts.length > 0)
+  );
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   const pushEdge = (edge: GraphEdge) => {
@@ -1816,9 +1840,9 @@ export const buildGraph = (
   });
 
   const sourceTags = new Set(["Manual", "CSV", "JSON", "Excel", "Google Contacts", "Google Calendar", "Apple Contacts", "Apple Calendar", "Rede Pública", "Grupo"]);
-  const existingTags = [...taxonomyContacts.values()].map((item) => item.label);
+  const existingTags = [...taxonomyContactsForGraph.values()].map((item) => item.label);
   const curatedTags = graphFilterGroups.flatMap((group) => group.tags);
-  const suggestedTags = curatedTags.filter((tag) => taxonomyContacts.has(normalize(tag)));
+  const suggestedTags = curatedTags.filter((tag) => taxonomyContactsForGraph.has(normalize(tag)));
   const remainingTags = existingTags.filter((tag) => !suggestedTags.some((suggestion) => normalize(suggestion) === normalize(tag))).slice(0, 16);
   const tags = unique([...suggestedTags, ...remainingTags])
     .filter((tag) => !tag.startsWith("DDD ") && !sourceTags.has(tag))
@@ -1826,7 +1850,7 @@ export const buildGraph = (
   tags.forEach((tag, index) => {
     const angle = (Math.PI * 2 * index) / Math.max(tags.length, 1) + Math.PI / 10;
     const nodeId = `tag:${tag}`;
-    const taggedContacts = taxonomyContacts.get(normalize(tag))?.contacts ?? [];
+    const taggedContacts = taxonomyContactsForGraph.get(normalize(tag))?.contacts ?? [];
     const renderedTaggedContacts = taggedContacts.filter((contact) => renderedContactIds.has(contact.id)).slice(0, config.maxSignalEdges);
     const tagColor = getGraphRuleColor(colorRules, "tag", [tag]);
     nodes.push({
@@ -1856,10 +1880,10 @@ export const buildGraph = (
     }
   });
 
-  const demandTopics = unique(contacts.flatMap((contact) => pickGraphTopics(contact.currentDemand, contact.tags))).slice(0, 6);
+  const demandTopics = unique(graphContacts.flatMap((contact) => pickGraphTopics(contact.currentDemand, contact.tags))).slice(0, 6);
   demandTopics.forEach((topic, index) => {
     const nodeId = `demand:${topic}`;
-    const topicContacts = contacts.filter((contact) => normalize(`${contact.currentDemand} ${contact.tags.join(" ")}`).includes(normalize(topic)));
+    const topicContacts = graphContacts.filter((contact) => normalize(`${contact.currentDemand} ${contact.tags.join(" ")}`).includes(normalize(topic)));
     nodes.push({
       id: nodeId,
       label: `Busca: ${topic}`,
@@ -1883,10 +1907,10 @@ export const buildGraph = (
     });
   });
 
-  const solutionTopics = unique(contacts.flatMap((contact) => pickGraphTopics(contact.problemSolves, contact.tags))).slice(0, 6);
+  const solutionTopics = unique(graphContacts.flatMap((contact) => pickGraphTopics(contact.problemSolves, contact.tags))).slice(0, 6);
   solutionTopics.forEach((topic, index) => {
     const nodeId = `solution:${topic}`;
-    const topicContacts = contacts.filter((contact) => normalize(`${contact.problemSolves} ${contact.tags.join(" ")}`).includes(normalize(topic)));
+    const topicContacts = graphContacts.filter((contact) => normalize(`${contact.problemSolves} ${contact.tags.join(" ")}`).includes(normalize(topic)));
     nodes.push({
       id: nodeId,
       label: `Resolve: ${topic}`,
@@ -1930,7 +1954,7 @@ export const buildGraph = (
     });
   });
 
-  const ddds = unique(contacts.map((contact) => contact.ddd).filter((ddd): ddd is string => Boolean(ddd))).slice(0, config.maxDddNodes);
+  const ddds = unique(graphContacts.map((contact) => contact.ddd).filter((ddd): ddd is string => Boolean(ddd))).slice(0, config.maxDddNodes);
   ddds.forEach((ddd, index) => {
     const nodeId = `ddd:${ddd}`;
     const dddColor = getGraphRuleColor(colorRules, "ddd", [ddd, `DDD ${ddd}`, formatDddShortLocation(ddd), formatDddLocation(ddd)]);
@@ -1942,10 +1966,10 @@ export const buildGraph = (
       y: 90 + index * 70,
       weight: 7,
       color: dddColor || nodeColorByType.ddd,
-      isDimmed: hasFocus && !contacts.some((contact) => contact.ddd === ddd && matchedContactIds.has(contact.id)),
+      isDimmed: hasFocus && !graphContacts.some((contact) => contact.ddd === ddd && matchedContactIds.has(contact.id)),
       meta: formatDddLocation(ddd)
     });
-    contacts
+    graphContacts
       .filter((contact) => contact.ddd === ddd && renderedContactIds.has(contact.id))
       .slice(0, config.maxSignalEdges)
       .forEach((contact) => {
@@ -1961,7 +1985,7 @@ export const buildGraph = (
       });
   });
 
-  const sources = unique(contacts.map((contact) => contact.source)).slice(0, config.maxSourceNodes);
+  const sources = unique(graphContacts.map((contact) => contact.source)).slice(0, config.maxSourceNodes);
   sources.forEach((source, index) => {
     const nodeId = `source:${source}`;
     const sourceColor = getGraphRuleColor(colorRules, "source", [source]);
@@ -1973,9 +1997,9 @@ export const buildGraph = (
       y: 112 + index * 76,
       weight: 7,
       color: sourceColor || nodeColorByType.source,
-      isDimmed: hasFocus && !contacts.some((contact) => contact.source === source && matchedContactIds.has(contact.id))
+      isDimmed: hasFocus && !graphContacts.some((contact) => contact.source === source && matchedContactIds.has(contact.id))
     });
-    contacts
+    graphContacts
       .filter((contact) => contact.source === source && renderedContactIds.has(contact.id))
       .slice(0, config.maxSignalEdges)
       .forEach((contact) => {
@@ -1993,6 +2017,13 @@ export const buildGraph = (
 
   state.groups
     .filter((group) => !groupId || group.id === groupId)
+    .filter((group) =>
+      !options.renderOnlyMatches ||
+      !hasFocus ||
+      Boolean(groupId) ||
+      group.contactIds.some((contactId) => renderedContactIds.has(contactId)) ||
+      renderedContacts.some((contact) => contactMatchesGroupTags(contact, group, state.groups))
+    )
     .forEach((group, index) => {
       const nodeId = `group:${group.id}`;
       nodes.push({

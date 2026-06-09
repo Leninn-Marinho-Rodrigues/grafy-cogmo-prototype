@@ -125,6 +125,7 @@ export interface SavedFilterRule {
   description: string;
   tags: string[];
   query?: string;
+  nameInitials?: string[];
   color: string;
   createdAt: string;
   updatedAt: string;

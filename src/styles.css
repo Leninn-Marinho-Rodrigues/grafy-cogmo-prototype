@@ -3198,6 +3198,75 @@ label {
   min-width: 0;
 }
 
+.name-filter-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(88, 166, 255, 0.08), rgba(96, 242, 213, 0.035)),
+    rgba(255, 255, 255, 0.035);
+  padding: 12px;
+}
+
+.name-filter-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.name-filter-head strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #f4fbff;
+}
+
+.name-filter-head svg {
+  color: var(--cyan);
+}
+
+.name-filter-head p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.name-initial-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.name-initial-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 42px;
+  min-height: 36px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #dcefff;
+  padding: 6px 9px;
+  font-weight: 950;
+}
+
+.name-initial-chip.active {
+  border-color: rgba(88, 166, 255, 0.58);
+  background: rgba(88, 166, 255, 0.16);
+  color: #bfeeff;
+}
+
+.name-initial-chip small {
+  color: color-mix(in srgb, currentColor 70%, #ffffff 30%);
+  font-size: 10px;
+  font-weight: 900;
+}
+
 .smart-filter-search {
   display: grid;
   gap: 9px;
@@ -5468,6 +5537,39 @@ label {
 
 .graph-canvas-network {
   opacity: 0.42;
+}
+
+.graph-empty-state {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  max-width: 520px;
+  margin: auto;
+  padding: 28px;
+  color: #f4fbff;
+  text-align: center;
+  pointer-events: none;
+}
+
+.graph-empty-state svg {
+  color: var(--cyan);
+  filter: drop-shadow(0 0 22px rgba(102, 231, 255, 0.34));
+}
+
+.graph-empty-state strong {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.graph-empty-state p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .graph-zoom-hint {
