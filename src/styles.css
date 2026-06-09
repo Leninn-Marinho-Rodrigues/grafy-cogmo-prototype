@@ -2928,7 +2928,7 @@ label {
 
 .split-screen {
   display: grid;
-  grid-template-columns: minmax(360px, 0.86fr) minmax(420px, 1.14fr);
+  grid-template-columns: minmax(430px, 0.96fr) minmax(440px, 1.04fr);
   gap: 18px;
 }
 
@@ -2936,6 +2936,23 @@ label {
 .detail-panel {
   min-height: calc(100vh - 138px);
   padding: 16px;
+}
+
+.contacts-command-panel {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.contacts-filter-stage {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(102, 231, 255, 0.12);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(102, 231, 255, 0.06), rgba(96, 242, 213, 0.025)),
+    rgba(2, 8, 18, 0.42);
+  padding: 14px;
 }
 
 .search-box {
@@ -2996,6 +3013,26 @@ label {
     linear-gradient(135deg, rgba(102, 231, 255, 0.055), rgba(169, 147, 255, 0.035)),
     rgba(255, 255, 255, 0.038);
   padding: 13px;
+}
+
+.smart-filter-panel.compact {
+  margin: 0;
+  padding: 12px;
+}
+
+.smart-filter-panel.compact .smart-filter-search {
+  gap: 8px;
+}
+
+.smart-filter-panel.compact .smart-suggestion-row {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+.smart-filter-panel.compact .smart-suggestion {
+  flex: 1 1 150px;
+  min-width: min(170px, 100%);
+  min-height: 46px;
 }
 
 .smart-filter-head,
@@ -3527,6 +3564,68 @@ label {
   margin-bottom: 12px;
 }
 
+.contact-results-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(96, 242, 213, 0.18);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(96, 242, 213, 0.09), rgba(102, 231, 255, 0.035)),
+    rgba(255, 255, 255, 0.04);
+  padding: 14px;
+}
+
+.contact-results-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.contact-results-head span {
+  display: block;
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.contact-results-head h3 {
+  margin: 3px 0 5px;
+  color: #f4fbff;
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.contact-results-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.contact-results-head strong {
+  flex: 0 0 auto;
+  border: 1px solid rgba(96, 242, 213, 0.22);
+  border-radius: 999px;
+  background: rgba(96, 242, 213, 0.08);
+  color: #c8fff1;
+  padding: 8px 11px;
+  font-size: 12px;
+}
+
+.contact-results-regions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.contact-results-regions svg {
+  color: var(--green);
+}
+
 .result-context-bar strong {
   color: #f4fbff;
   font-size: 13px;
@@ -3709,6 +3808,121 @@ label {
   gap: 9px;
 }
 
+.contact-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.contact-result-card {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.075), rgba(102, 231, 255, 0.025)),
+    rgba(3, 11, 22, 0.62);
+  color: var(--text);
+  padding: 14px;
+  text-align: left;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.contact-result-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(102, 231, 255, 0.34);
+  background:
+    linear-gradient(135deg, rgba(102, 231, 255, 0.1), rgba(96, 242, 213, 0.035)),
+    rgba(3, 11, 22, 0.76);
+}
+
+.contact-result-card.active {
+  border-color: rgba(102, 231, 255, 0.62);
+  box-shadow: 0 0 0 1px rgba(102, 231, 255, 0.18), 0 18px 50px rgba(102, 231, 255, 0.08);
+}
+
+.contact-result-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: center;
+}
+
+.contact-result-top strong {
+  display: block;
+  color: #f7fbff;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.contact-result-top small {
+  display: -webkit-box;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.contact-result-top svg {
+  color: var(--amber);
+}
+
+.contact-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.contact-result-meta em {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #dcefff;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.contact-result-meta svg {
+  color: var(--cyan);
+  flex: 0 0 auto;
+}
+
+.contact-result-intel {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(255, 209, 102, 0.14);
+  border-radius: var(--radius);
+  background: rgba(255, 209, 102, 0.045);
+  padding: 10px;
+}
+
+.contact-result-intel b {
+  color: #ffe4a6;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.contact-result-intel small {
+  display: -webkit-box;
+  color: #e8eef7;
+  font-size: 12px;
+  line-height: 1.45;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 .contact-row.active {
   border-color: rgba(102, 231, 255, 0.52);
   background: rgba(102, 231, 255, 0.1);
@@ -3821,6 +4035,163 @@ label {
   color: var(--muted);
   font-size: 11px;
   margin-top: 2px;
+}
+
+.crm-contact-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid rgba(102, 231, 255, 0.16);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(102, 231, 255, 0.08), rgba(169, 147, 255, 0.035)),
+    rgba(255, 255, 255, 0.035);
+  padding: 14px;
+}
+
+.crm-contact-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.crm-contact-head span {
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.crm-contact-head h3 {
+  margin: 3px 0 0;
+  color: #f7fbff;
+  font-size: 18px;
+}
+
+.crm-contact-head small {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.crm-signal-grid,
+.crm-extra-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.crm-signal-grid button {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius);
+  background: rgba(3, 11, 22, 0.52);
+  color: var(--text);
+  padding: 11px;
+  text-align: left;
+}
+
+.crm-signal-grid button:not(:disabled):hover {
+  border-color: rgba(102, 231, 255, 0.34);
+  background: rgba(102, 231, 255, 0.08);
+}
+
+.crm-signal-grid button:disabled {
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.crm-signal-grid svg {
+  color: var(--cyan);
+}
+
+.crm-signal-grid span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.crm-signal-grid strong {
+  color: #f4fbff;
+  font-size: 13px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.crm-extra-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.crm-relationship-panel {
+  display: grid;
+  gap: 9px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 12px;
+}
+
+.crm-relationship-panel > strong {
+  color: #f4fbff;
+  font-size: 13px;
+}
+
+.crm-relationship-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.42fr) minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+}
+
+.crm-relationship-row > button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(102, 231, 255, 0.14);
+  border-radius: var(--radius);
+  background: rgba(102, 231, 255, 0.055);
+  color: #eaf8ff;
+  padding: 9px;
+  text-align: left;
+}
+
+.crm-relationship-row > button svg {
+  color: var(--cyan);
+}
+
+.crm-relationship-row > button span {
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.crm-relationship-row > button small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.crm-relationship-row > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.crm-relationship-row > div button {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  color: #dcefff;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.crm-relationship-row > div em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
 }
 
 .contact-header,
@@ -6278,7 +6649,10 @@ label {
   .google-preview-list,
   .auth-provider-grid,
   .saved-rule-composer,
-  .custom-field-grid {
+  .custom-field-grid,
+  .crm-signal-grid,
+  .crm-extra-grid,
+  .crm-relationship-row {
     grid-template-columns: 1fr;
   }
 

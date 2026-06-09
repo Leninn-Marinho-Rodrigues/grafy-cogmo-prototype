@@ -2883,7 +2883,8 @@ function SmartFilterPanel({
   onClear,
   onSearchCommit,
   title,
-  description
+  description,
+  compact = false
 }: {
   contacts: Contact[];
   groups: GrafyState["groups"];
@@ -2893,6 +2894,7 @@ function SmartFilterPanel({
   onSearchCommit?: (query: string) => void;
   title: string;
   description: string;
+  compact?: boolean;
 }) {
   const [filterQuery, setFilterQuery] = useState("");
   const deferredFilterQuery = useDeferredValue(filterQuery);
@@ -2957,7 +2959,7 @@ function SmartFilterPanel({
   };
 
   return (
-    <section className="smart-filter-panel">
+    <section className={`smart-filter-panel ${compact ? "compact" : ""}`}>
       <div className="smart-filter-head">
         <div>
           <strong>
@@ -3010,34 +3012,36 @@ function SmartFilterPanel({
         </div>
       </div>
 
-      <div className="smart-filter-groups">
-        {filterGroups.map((group) => (
-          <div className="smart-filter-family" key={group.label}>
-            <div>
-              <strong>{group.label}</strong>
-              <small>{group.helper}</small>
+      {!compact && (
+        <div className="smart-filter-groups">
+          {filterGroups.map((group) => (
+            <div className="smart-filter-family" key={group.label}>
+              <div>
+                <strong>{group.label}</strong>
+                <small>{group.helper}</small>
+              </div>
+              <div className="smart-filter-chip-grid">
+                {group.tags.map((tag) => {
+                  const active = activeFilters.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag));
+                  const count = filterCounts.get(tag) ?? 0;
+                  return (
+                    <button
+                      key={`${group.label}-${tag}`}
+                      type="button"
+                      aria-pressed={active}
+                      className={`${active ? "filter-chip active smart-chip" : "filter-chip smart-chip"} ${tagToneClass(tag)}`}
+                      onClick={() => onToggle(tag)}
+                    >
+                      <span>{tag}</span>
+                      <small>{filterCountLabel(count)}</small>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div className="smart-filter-chip-grid">
-              {group.tags.map((tag) => {
-                const active = activeFilters.some((item) => normalizeGraphTag(item) === normalizeGraphTag(tag));
-                const count = filterCounts.get(tag) ?? 0;
-                return (
-                  <button
-                    key={`${group.label}-${tag}`}
-                    type="button"
-                    aria-pressed={active}
-                    className={`${active ? "filter-chip active smart-chip" : "filter-chip smart-chip"} ${tagToneClass(tag)}`}
-                    onClick={() => onToggle(tag)}
-                  >
-                    <span>{tag}</span>
-                    <small>{filterCountLabel(count)}</small>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {activeFilters.length > 0 && (
         <div className="smart-active-filters">
@@ -3438,10 +3442,30 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     if (selectedContact?.id !== selectedVisibleContact.id) setSelectedContactId(selectedVisibleContact.id);
   }, [selectedContact?.id, selectedVisibleContact, setSelectedContactId]);
   const locationSummary = unique(contacts.map((contact) => formatDddShortLocation(contact.ddd)).filter((label) => !label.includes("não identificado"))).slice(0, 4);
+  const hasActiveContactFilter = activeFilters.length > 0 || query.trim().length > 0;
+  const filterSummaryLabel = activeRule
+    ? activeRule.name
+    : hasActiveContactFilter
+      ? [...activeFilters, query.trim()].filter(Boolean).join(" + ")
+      : "Todos os contatos";
+  const applyCrmFilter = (value: string, mode: "query" | "filter" = "query") => {
+    const cleanValue = value.trim();
+    if (!cleanValue) return;
+    setState((current) => ({ ...current, activeFilterRuleId: undefined }));
+    if (mode === "filter") {
+      setActiveFilters([cleanValue]);
+      setQuery("");
+    } else {
+      setActiveFilters([]);
+      setQuery(cleanValue);
+    }
+    setShowCreate(false);
+  };
 
   return (
     <div className="screen split-screen">
-      <section className="list-panel">
+      <section className="list-panel contacts-command-panel">
+        <div className="contacts-filter-stage">
         <div className="section-toolbar">
           <div className="search-box">
             <Search size={17} />
@@ -3490,14 +3514,31 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
             setQuery(value);
           }}
           title="Filtros inteligentes"
-          description="Selecione mais de um chip para afunilar: diretor + financeiro + DDD 11, por exemplo."
+          description="Digite como no Google ou clique em uma sugestão. Os contatos compatíveis aparecem logo abaixo."
+          compact
         />
-
-        <div className="result-context-bar">
-          <span>{activeFilters.length || query ? "Filtro aplicado" : "Visão geral"}</span>
-          <strong>{contacts.length} contato(s) encontrados</strong>
-          {locationSummary.length > 0 && <small>Regiões em foco: {locationSummary.join(" · ")}</small>}
         </div>
+
+        <section className="contact-results-panel" aria-label="Contatos correspondentes aos filtros">
+          <div className="contact-results-head">
+            <div>
+              <span>{hasActiveContactFilter ? "Resultado do filtro" : "Base de contatos"}</span>
+              <h3>{filterSummaryLabel}</h3>
+              <p>
+                {hasActiveContactFilter
+                  ? "Somente contatos que respeitam as regras atuais aparecem aqui."
+                  : "Sem filtro ativo, todos os contatos aparecem em cards de leitura rápida."}
+              </p>
+            </div>
+            <strong>{contacts.length} de {state.contacts.length}</strong>
+          </div>
+          {locationSummary.length > 0 && (
+            <div className="contact-results-regions">
+              <MapPin size={15} />
+              <span>Regiões em foco: {locationSummary.join(" · ")}</span>
+            </div>
+          )}
+        </section>
 
         {visibleSuggestions.length > 0 && (
           <div className="alert-card">
@@ -3540,32 +3581,43 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
           </div>
         )}
 
-        <div className="contact-list">
+        <div className="contact-card-grid">
           {contacts.map((contact) => (
             <button
               key={contact.id}
-              className={`contact-row ${selectedVisibleContact?.id === contact.id ? "active" : ""}`}
+              className={`contact-result-card ${selectedVisibleContact?.id === contact.id ? "active" : ""}`}
               onClick={() => setSelectedContactId(contact.id)}
             >
-              <span className="avatar">{initials(contact.name)}</span>
-              <span className="contact-row-main">
-                <strong>{contact.name}</strong>
-                <small>{contact.headline || contact.description}</small>
-                <span className="row-tags">
-                  {contact.tags.slice(0, 3).map((item) => (
-                    <em key={item}>{item}</em>
-                  ))}
+              <span className="contact-result-top">
+                <span className="avatar">{initials(contact.name)}</span>
+                <span>
+                  <strong>{contact.name}</strong>
+                  <small>{contact.headline || contact.description || "Contato sem descrição"}</small>
                 </span>
-              </span>
-              <span className="row-meta">
                 {contact.isPublic && <Eye size={15} />}
-                {contact.ddd && (
-                  <span className="row-location">
-                    <MapPin size={13} />
-                    <small>{formatDddShortLocation(contact.ddd)}</small>
-                    {getDddLocation(contact.ddd)?.region && <em>{getDddLocation(contact.ddd)?.region}</em>}
-                  </span>
+              </span>
+              <span className="contact-result-meta">
+                {String(contact.customFields.empresa ?? "").trim() && (
+                  <em><Building2 size={13} />{String(contact.customFields.empresa)}</em>
                 )}
+                {String(contact.customFields.cargo ?? "").trim() && (
+                  <em><BriefcaseBusiness size={13} />{String(contact.customFields.cargo)}</em>
+                )}
+                {String(contact.customFields.area ?? "").trim() && (
+                  <em><Tags size={13} />{String(contact.customFields.area)}</em>
+                )}
+                {contact.ddd && (
+                  <em><MapPin size={13} />{formatDddShortLocation(contact.ddd)}</em>
+                )}
+              </span>
+              <span className="contact-result-intel">
+                <b>Demanda</b>
+                <small>{contact.currentDemand || "Nenhuma demanda informada ainda."}</small>
+              </span>
+              <span className="row-tags">
+                {contact.tags.slice(0, 4).map((item) => (
+                  <em key={item}>{item}</em>
+                ))}
               </span>
             </button>
           ))}
@@ -3587,8 +3639,11 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
             suggestions={visibleSuggestions.filter((suggestion) => suggestion.contactA.id === selectedVisibleContact.id || suggestion.contactB.id === selectedVisibleContact.id)}
             mergeDecisions={mergeDecisions}
             customFields={state.customFields}
+            allContacts={state.contacts}
             activeRule={activeRule}
             activeFilters={activeFilters}
+            onOpenContact={setSelectedContactId}
+            onApplyCrmFilter={applyCrmFilter}
             updateContact={updateContact}
             deleteContact={deleteContact}
             approveMerge={approveMerge}
@@ -3607,8 +3662,11 @@ function ContactDetail({
   suggestions,
   mergeDecisions,
   customFields,
+  allContacts,
   activeRule,
   activeFilters,
+  onOpenContact,
+  onApplyCrmFilter,
   updateContact,
   deleteContact,
   approveMerge,
@@ -3618,8 +3676,11 @@ function ContactDetail({
   suggestions: ReturnType<typeof getMergeSuggestions>;
   mergeDecisions: GrafyState["mergeDecisions"];
   customFields: CustomField[];
+  allContacts: Contact[];
   activeRule?: SavedFilterRule;
   activeFilters: string[];
+  onOpenContact: (id: string) => void;
+  onApplyCrmFilter: (value: string, mode?: "query" | "filter") => void;
   updateContact: (id: string, patch: Partial<Contact>) => void;
   deleteContact: (id: string) => void;
   approveMerge: (primaryId: string, duplicateId: string) => void;
@@ -3643,6 +3704,25 @@ function ContactDetail({
       }
     });
   };
+  const company = String(contact.customFields.empresa ?? "").trim();
+  const role = String(contact.customFields.cargo ?? "").trim();
+  const area = String(contact.customFields.area ?? "").trim();
+  const businessType = String(contact.customFields.tipoNegocio ?? "").trim();
+  const region = contact.ddd ? formatDddShortLocation(contact.ddd) : "";
+  const sameCompanyContacts = company
+    ? allContacts.filter((item) => item.id !== contact.id && normalizeGraphTag(String(item.customFields.empresa ?? "")) === normalizeGraphTag(company))
+    : [];
+  const sameAreaContacts = area
+    ? allContacts.filter((item) => item.id !== contact.id && normalizeGraphTag(String(item.customFields.area ?? "")) === normalizeGraphTag(area))
+    : [];
+  const sameRoleContacts = role
+    ? allContacts.filter((item) => item.id !== contact.id && normalizeGraphTag(String(item.customFields.cargo ?? "")) === normalizeGraphTag(role))
+    : [];
+  const relationshipRows = [
+    { label: "Mesma empresa", value: company, contacts: sameCompanyContacts, mode: "query" as const, icon: Building2 },
+    { label: "Mesmo setor", value: area, contacts: sameAreaContacts, mode: "filter" as const, icon: Tags },
+    { label: "Mesmo cargo", value: role, contacts: sameRoleContacts, mode: "filter" as const, icon: BriefcaseBusiness }
+  ].filter((row) => row.value);
 
   return (
     <div className="contact-detail">
@@ -3668,6 +3748,70 @@ function ContactDetail({
           </div>
         </div>
       )}
+
+      <section className="crm-contact-panel" aria-label="Resumo CRM do contato">
+        <div className="crm-contact-head">
+          <div>
+            <span>Ficha CRM</span>
+            <h3>Contexto para agir</h3>
+          </div>
+          <small>{contact.source} · {region || "região não informada"}</small>
+        </div>
+        <div className="crm-signal-grid">
+          <button type="button" onClick={() => company && onApplyCrmFilter(company, "query")} disabled={!company}>
+            <Building2 size={16} />
+            <span>Empresa</span>
+            <strong>{company || "Não informada"}</strong>
+          </button>
+          <button type="button" onClick={() => area && onApplyCrmFilter(area, "filter")} disabled={!area}>
+            <Tags size={16} />
+            <span>Setor</span>
+            <strong>{area || "Não informado"}</strong>
+          </button>
+          <button type="button" onClick={() => role && onApplyCrmFilter(role, "filter")} disabled={!role}>
+            <BriefcaseBusiness size={16} />
+            <span>Cargo</span>
+            <strong>{role || "Não informado"}</strong>
+          </button>
+          <button type="button" onClick={() => contact.ddd && onApplyCrmFilter(`DDD ${contact.ddd}`, "filter")} disabled={!contact.ddd}>
+            <MapPin size={16} />
+            <span>Região</span>
+            <strong>{region || "Não informada"}</strong>
+          </button>
+        </div>
+        {(businessType || contact.lastInteractionAt || contact.nextFollowUpAt) && (
+          <div className="crm-extra-grid">
+            {businessType && <Info icon={Database} label="Tipo de negócio" value={businessType} />}
+            {contact.lastInteractionAt && <Info icon={CalendarClock} label="Última interação" value={formatDate(contact.lastInteractionAt)} />}
+            {contact.nextFollowUpAt && <Info icon={CalendarClock} label="Próximo follow-up" value={formatDate(contact.nextFollowUpAt)} />}
+          </div>
+        )}
+        {relationshipRows.length > 0 && (
+          <div className="crm-relationship-panel">
+            <strong>Relações rápidas</strong>
+            {relationshipRows.map((row) => {
+              const Icon = row.icon;
+              return (
+                <div className="crm-relationship-row" key={row.label}>
+                  <button type="button" onClick={() => onApplyCrmFilter(row.value, row.mode)}>
+                    <Icon size={15} />
+                    <span>{row.label}</span>
+                    <small>{row.contacts.length} contato(s)</small>
+                  </button>
+                  <div>
+                    {row.contacts.slice(0, 4).map((related) => (
+                      <button key={related.id} type="button" onClick={() => onOpenContact(related.id)}>
+                        {related.name}
+                      </button>
+                    ))}
+                    {!row.contacts.length && <em>Nenhum outro contato encontrado ainda.</em>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {suggestions.map((suggestion) => {
         const other = suggestion.contactA.id === contact.id ? suggestion.contactB : suggestion.contactA;
