@@ -3100,7 +3100,19 @@ function contactMatchesNameInitials(contact: Contact, initials: string[]) {
 }
 
 function getNameInitialOptions(contacts: Contact[]) {
-  return unique(contacts.map(getContactNameInitial)).sort((a, b) => {
+  const counts = new Map<string, number>();
+  contacts.forEach((contact) => {
+    const initial = getContactNameInitial(contact);
+    counts.set(initial, (counts.get(initial) ?? 0) + 1);
+  });
+  return "ABCDEFGHIJKLMNOPQRSTUVWXYZ#".split("").map((initial) => ({
+    initial,
+    count: counts.get(initial) ?? 0
+  }));
+}
+
+function sortNameInitials(initials: string[]) {
+  return unique(initials).sort((a, b) => {
     if (a === "#") return 1;
     if (b === "#") return -1;
     return a.localeCompare(b);
@@ -3118,7 +3130,28 @@ function NameInitialFilterPanel({
   onToggle: (initial: string) => void;
   onClear: () => void;
 }) {
-  const initials = getNameInitialOptions(contacts);
+  const [draft, setDraft] = useState("");
+  const [showAllInitials, setShowAllInitials] = useState(false);
+  const initialOptions = getNameInitialOptions(contacts);
+  const availableOptions = initialOptions.filter((option) => option.count > 0);
+  const normalizedDraft = normalizeGraphTag(draft).replace(/[^a-z0-9]/g, "").toUpperCase();
+  const filteredOptions = (normalizedDraft
+    ? availableOptions.filter((option) => option.initial.startsWith(normalizedDraft))
+    : availableOptions
+  ).slice(0, 8);
+  const activeSorted = sortNameInitials(activeInitials);
+  const applyInitial = (initial: string) => {
+    if (!initial) return;
+    if (!activeInitials.includes(initial)) onToggle(initial);
+    setDraft("");
+  };
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    const initial = normalizedDraft.charAt(0);
+    const option = initialOptions.find((item) => item.initial === initial && item.count > 0);
+    if (option) applyInitial(option.initial);
+  };
+
   return (
     <section className="name-filter-panel" aria-label="Filtro por inicial do nome">
       <div className="name-filter-head">
@@ -3127,7 +3160,7 @@ function NameInitialFilterPanel({
             <UserRound size={16} />
             Nome
           </strong>
-          <p>Filtre por contatos que começam com A, I ou qualquer inicial disponível na sua base.</p>
+          <p>Digite uma inicial ou escolha na lista. O alfabeto completo fica acessível sem ocupar a tela.</p>
         </div>
         {activeInitials.length > 0 && (
           <button className="secondary-button compact ghost" type="button" onClick={onClear}>
@@ -3135,9 +3168,27 @@ function NameInitialFilterPanel({
           </button>
         )}
       </div>
-      <div className="name-initial-grid">
-        {initials.map((initial) => {
-          const count = contacts.filter((contact) => getContactNameInitial(contact) === initial).length;
+      <form className="name-initial-search" onSubmit={handleSubmit}>
+        <Search size={15} />
+        <input
+          value={draft}
+          maxLength={1}
+          onChange={(event) => setDraft(event.target.value.toUpperCase())}
+          placeholder="Filtrar por inicial, ex.: A"
+          aria-label="Filtrar contatos por inicial"
+        />
+        <button className="secondary-button compact" type="submit" disabled={!normalizedDraft || !initialOptions.some((option) => option.initial === normalizedDraft.charAt(0) && option.count > 0)}>
+          Aplicar
+        </button>
+      </form>
+      <div className="name-initial-tools">
+        <span>{availableOptions.length} inicial(is) com contato</span>
+        <button className="secondary-button compact ghost" type="button" onClick={() => setShowAllInitials((current) => !current)}>
+          {showAllInitials ? "Ocultar alfabeto" : "Ver alfabeto completo"}
+        </button>
+      </div>
+      <div className="name-initial-row" aria-label="Iniciais de nomes disponíveis">
+        {filteredOptions.map(({ initial, count }) => {
           const active = activeInitials.includes(initial);
           return (
             <button
@@ -3152,7 +3203,39 @@ function NameInitialFilterPanel({
             </button>
           );
         })}
+        {!filteredOptions.length && <span className="name-initial-empty">Nenhum contato com essa inicial.</span>}
       </div>
+      {showAllInitials && (
+        <div className="name-initial-alphabet" aria-label="Alfabeto completo de iniciais">
+          {initialOptions.map(({ initial, count }) => {
+            const active = activeInitials.includes(initial);
+            return (
+              <button
+                key={initial}
+                type="button"
+                aria-pressed={active}
+                disabled={count === 0}
+                className={active ? "name-initial-chip active" : "name-initial-chip"}
+                onClick={() => onToggle(initial)}
+              >
+                <span>{initial}</span>
+                <small>{count}</small>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {activeSorted.length > 0 && (
+        <div className="name-initial-active">
+          <span>Ativas</span>
+          {activeSorted.map((initial) => (
+            <button key={initial} type="button" onClick={() => onToggle(initial)}>
+              {initial}
+              <X size={12} />
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -6013,9 +6096,14 @@ function ProfileView({ state, setState }: AppShellProps) {
           <label>Instagram<input value={linkValue("instagram")} onChange={(event) => updateLink("instagram", event.target.value)} placeholder="@seuperfil" /></label>
           <label>URL<input value={linkValue("url")} onChange={(event) => updateLink("url", event.target.value)} placeholder="https://..." /></label>
         </div>
+      </section>
 
-        <div className="settings-panel profile-signal-panel">
-          <h2>Como o perfil entra no sistema</h2>
+      <section className="profile-control-panel">
+        <div className="profile-signal-panel">
+          <div>
+            <h2>Como o perfil entra no sistema</h2>
+            <p className="panel-note">Esses dados alimentam Rede, chat e grafo sem expor seus contatos privados.</p>
+          </div>
           <div className="architecture-list">
             <Info icon={Tags} label="Tags" value="Virarão filtros e nós do grafo público" />
             <Info icon={Sparkles} label="Demanda" value="Ajuda o chat a sugerir quem pode ajudar você" />
@@ -6023,23 +6111,23 @@ function ProfileView({ state, setState }: AppShellProps) {
           </div>
         </div>
 
-        <div className="settings-panel">
+        <div className="profile-visibility-panel">
           <h2>Visibilidade</h2>
           <p className="panel-note">Por padrão, seu perfil fica privado. Ao ativar, apenas o card público aparece na Rede; seus contatos privados não são expostos.</p>
-        <div className="toggle-row">
-          <div>
-            <strong>Quero ser visto na minha rede</strong>
-            <span>Controla se o seu card aparece na descoberta pública.</span>
+          <div className="toggle-row">
+            <div>
+              <strong>Quero ser visto na minha rede</strong>
+              <span>Controla se o seu card aparece na descoberta pública.</span>
+            </div>
+            <button
+              className={profile.visibility === "platform" ? "toggle active" : "toggle"}
+              onClick={() =>
+                updateProfile({ visibility: profile.visibility === "platform" ? "private" : "platform" })
+              }
+            >
+              <span />
+            </button>
           </div>
-          <button
-            className={profile.visibility === "platform" ? "toggle active" : "toggle"}
-            onClick={() =>
-              updateProfile({ visibility: profile.visibility === "platform" ? "private" : "platform" })
-            }
-          >
-            <span />
-          </button>
-        </div>
         </div>
       </section>
     </div>
