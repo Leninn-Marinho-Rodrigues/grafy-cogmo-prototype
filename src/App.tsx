@@ -2875,6 +2875,12 @@ function filterCountLabel(count: number) {
   return count === 1 ? "1 pessoa" : `${count} pessoas`;
 }
 
+const contactSortLabels: Record<NonNullable<SavedFilterRule["sortMode"]>, string> = {
+  relevance: "mais relevantes",
+  name: "nome A-Z",
+  updated: "atualizados"
+};
+
 function SmartFilterPanel({
   contacts,
   groups,
@@ -3221,7 +3227,10 @@ function SavedFilterRulesPanel({
               onClick={() => onApply(rule)}
             >
               <span>{rule.name}</span>
-              <small>{count} contato(s) Â· {[...rule.tags, ...(rule.nameInitials ?? []).map((initial) => `Nome ${initial}`), rule.query ?? ""].filter(Boolean).join(" + ") || "sem tags"}</small>
+              <small>
+                {count} contato(s) Â· {[...rule.tags, ...(rule.nameInitials ?? []).map((initial) => `Nome ${initial}`), rule.query ?? ""].filter(Boolean).join(" + ") || "sem tags"}
+                {rule.sortMode ? ` Â· ${contactSortLabels[rule.sortMode]}` : ""}
+              </small>
               <i aria-hidden="true" />
             </button>
           );
@@ -3461,6 +3470,7 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     setActiveFilters([]);
     setQuery("");
     setNameInitialFilters([]);
+    setContactSortMode("relevance");
   };
 
   const toggleFilter = (tag: string) => {
@@ -3481,7 +3491,13 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     );
   };
 
-  const saveFilterRule = (name: string, tags: string[], ruleQuery = "", initials: string[] = []) => {
+  const saveFilterRule = (
+    name: string,
+    tags: string[],
+    ruleQuery = "",
+    initials: string[] = [],
+    sortMode: NonNullable<SavedFilterRule["sortMode"]> = contactSortMode
+  ) => {
     const cleanTags = unique(tags.map((tag) => tag.trim()).filter(Boolean));
     const cleanQuery = ruleQuery.trim();
     const cleanInitials = unique(initials.map((initial) => initial.trim().toUpperCase()).filter(Boolean));
@@ -3495,11 +3511,13 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
       description: [
         cleanTags.length ? `Tags: ${cleanTags.join(", ")}` : "",
         cleanInitials.length ? `Nomes: ${cleanInitials.join(", ")}` : "",
-        cleanQuery ? `Busca: ${cleanQuery}` : ""
+        cleanQuery ? `Busca: ${cleanQuery}` : "",
+        `Ordenação: ${contactSortLabels[sortMode]}`
       ].filter(Boolean).join(" · "),
       tags: cleanTags,
       query: cleanQuery || undefined,
       nameInitials: cleanInitials.length ? cleanInitials : undefined,
+      sortMode,
       color,
       createdAt: now,
       updatedAt: now
@@ -3512,6 +3530,7 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     setActiveFilters(rule.tags);
     setQuery(rule.query ?? "");
     setNameInitialFilters(rule.nameInitials ?? []);
+    setContactSortMode(rule.sortMode ?? "relevance");
     setRuleName("");
     setRuleTagsDraft("");
   };
@@ -3521,6 +3540,7 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
     setActiveFilters(rule.tags);
     setQuery(rule.query ?? "");
     setNameInitialFilters(rule.nameInitials ?? []);
+    setContactSortMode(rule.sortMode ?? "relevance");
   };
 
   const deleteSavedRule = (ruleId: string) => {
@@ -3533,6 +3553,7 @@ function ContactsView({ state, setState, selectedContact, setSelectedContactId, 
       setActiveFilters([]);
       setQuery("");
       setNameInitialFilters([]);
+      setContactSortMode("relevance");
     }
   };
 

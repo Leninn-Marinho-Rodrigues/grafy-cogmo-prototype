@@ -47,7 +47,7 @@ Este repositório é uma base de demonstração para conversas internas, valida�
 | Landing/onboarding | Entrada central em `#/` perguntando o tipo de negócio, com caminhos dedicados em `#/empresarios` para B2C e `#/hubs-eventos` para B2B/B2B2C. O primeiro acesso agora força a lógica certa: vincular/importar dados reais antes de abrir o workspace. |
 | Dashboard | Métricas da base, atalhos, oportunidades e visão geral do workspace. |
 | Contatos | CRUD inicial, tags, demandas, problema que resolve, links, grupos, status público/privado, lista CRM dedicada aos contatos filtrados, atalhos por empresa/setor/cargo/região e filtro por inicial do nome. |
-| Regras salvas | Filtros persistidos por tags, DDD, cargo, área, setor, busca textual e iniciais de nome. A lista e a ficha do contato respeitam a regra ativa. |
+| Regras salvas | Filtros persistidos por tags, DDD, cargo, área, setor, busca textual, iniciais de nome e ordenação. A lista e a ficha do contato respeitam a regra ativa. |
 | Importação | Google Contacts quando `VITE_GOOGLE_CLIENT_ID` existe; Google Agenda opcional por `VITE_GOOGLE_IMPORT_CALENDAR=true`; Apple ID para identidade, Apple Contacts por `.vcf`, Apple Agenda por `.ics`, e bases de hubs por Excel/CSV/JSON. |
 | Grafo | Começa sem contatos para evitar ruído; ao aplicar tags, busca ou grupo, mostra somente contatos compatíveis, com limite de 20 contatos, pan, zoom e inspetor lateral. |
 | Rede pública | Perfis opt-in, cards públicos, filtros e separação clara da base privada. |
@@ -117,8 +117,9 @@ Mais detalhes em [docs/guides/architecture.md](docs/guides/architecture.md).
 O Grafy agora separa três conceitos que precisam funcionar bem para empresário individual e para empresa/hub:
 
 - **Grupos/pastas:** guardam cor, tags e contatos fixados. Uma pasta com `ddd61`, `Brasília` ou `DF` encontra automaticamente contatos compatíveis e pode fixar esses contatos com **Puxar encontrados**.
-- **Regras salvas:** são filtros persistidos por tags, busca e iniciais de nome. Exemplos: `financeiro`, `ddd61`, `Nome A + Nome I`, `marketing + parcerias`, `diretor + RH`. Ao aplicar uma regra, a lista de contatos e a ficha aberta mostram apenas contatos que respeitam aquela regra.
+- **Regras salvas:** são filtros persistidos por tags, busca, iniciais de nome e ordenação. Exemplos: `financeiro`, `ddd61`, `Nome A + Nome I`, `marketing + parcerias`, `diretor + RH`. Ao aplicar uma regra, a lista de contatos e a ficha aberta mostram apenas contatos que respeitam aquela regra.
 - **Filtros rápidos:** continuam disponíveis para exploração livre no momento, incluindo o filtro por inicial do nome. Quando fizer sentido, o usuário salva o filtro atual como regra para reutilizar depois.
+- **Precisão por contato:** filtros de cargo, setor, DDD e tags usam sinais próprios do contato. Tags amplas de uma pasta ajudam a organizar grupos, mas não transformam todos os membros daquela pasta em contatos daquela área.
 - **Lista CRM dedicada:** a aba Contatos mostra os contatos que respeitam o filtro logo abaixo dos controles, com ordenação, demanda, problema resolvido e botões para refinar por empresa, setor, cargo ou região. Ao clicar em um contato, a ficha lateral permite abrir relações de mesma empresa, setor, cargo e DDD.
 - **Grafo sob demanda:** para manter performance e clareza, o canvas nasce vazio e só desenha contatos depois de uma tag, busca textual ou grupo ativo. O limite de 20 contatos continua protegendo a animação.
 

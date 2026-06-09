@@ -1227,7 +1227,11 @@ const customFieldText = (contact: Contact, key: string) => {
   return value ? String(value) : "";
 };
 
-export const getContactTaxonomyTags = (contact: Contact, groups: GrafyState["groups"] = []) => {
+export const getContactTaxonomyTags = (
+  contact: Contact,
+  groups: GrafyState["groups"] = [],
+  options: { includeGroupTags?: boolean } = {}
+) => {
   const contactGroups = groups.filter((group) => contact.groupIds.includes(group.id));
   return unique([
     ...contact.tags,
@@ -1236,7 +1240,8 @@ export const getContactTaxonomyTags = (contact: Contact, groups: GrafyState["gro
     customFieldText(contact, "tipoNegocio"),
     ...getDddLocationSignals(contact.ddd),
     contact.source,
-    ...contactGroups.flatMap((group) => [group.name, ...group.tags])
+    ...contactGroups.map((group) => group.name),
+    ...(options.includeGroupTags ? contactGroups.flatMap((group) => group.tags) : [])
   ]).filter(Boolean);
 };
 

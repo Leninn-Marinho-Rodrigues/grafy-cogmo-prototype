@@ -126,6 +126,7 @@ export interface SavedFilterRule {
   tags: string[];
   query?: string;
   nameInitials?: string[];
+  sortMode?: "relevance" | "name" | "updated";
   color: string;
   createdAt: string;
   updatedAt: string;
